@@ -211,14 +211,20 @@ function startOrphanReaperWithChangedAdopter() {
   return { reaperPromise: context.reaperPromise, signals };
 }
 
-function authorityProcess({ pid, ppid }) {
+function authorityProcess({ pid, ppid, remoteControl = false }) {
   return {
     pid,
     uid: process.getuid(),
     state: "S",
     ppid,
     startTime: "100",
-    commandLine: ["/usr/bin/codex", "app-server", "--listen", "unix:///test/app-server.sock"],
+    commandLine: [
+      "/usr/bin/codex",
+      "app-server",
+      ...(remoteControl ? ["--remote-control"] : []),
+      "--listen",
+      "unix:///test/app-server.sock",
+    ],
   };
 }
 
@@ -534,7 +540,9 @@ test("patch selects the bridge only for the local host and is idempotent", () =>
   assert.match(patched, /CODEX_LINUX_APP_SERVER_BRIDGE_SOCKET/);
   assert.match(patched, /hostConfig\.kind===`local`/);
   assert.match(patched, /app-server`,\s*`proxy`,\s*`--sock`/);
-  assert.match(patched, /app-server`,\s*`--listen`,\s*`unix:\/\//);
+  assert.match(patched, /authorityArgs\(\)/);
+  assert.match(patched, /desktop-app-server-remote-control-enabled/);
+  assert.match(patched, /e\.push\(`--listen`,`unix:\/\/\$\{this\.socketPath\}`\)/);
   assert.match(patched, /await this\.ensureAuthority\(\)/);
   assert.match(patched, /e\.once\(`close`,t\);try\{e\.kill\(\)/);
   assert.match(patched, /openSync\(this\.lockPath,`wx`,384\)/);
@@ -545,6 +553,63 @@ test("patch selects the bridge only for the local host and is idempotent", () =>
   assert.match(patched, /new n\.kn\(qae,/);
   assert.match(patched, /new n\.On\(/);
   assert.match(patched, /supportsReconnect\(\)\{return!0\}/);
+});
+
+test("shared authority enables remote control when the packaged Desktop owner marker is valid", () => {
+  const appDir = fs.mkdtempSync(path.join(os.tmpdir(), "shared-app-server-remote-control-"));
+  const markerDir = path.join(appDir, ".codex-linux");
+  fs.mkdirSync(markerDir);
+  fs.writeFileSync(
+    path.join(markerDir, "desktop-app-server-remote-control-enabled"),
+    "version=1\nowner=desktop\n",
+  );
+  const { Transport } = loadInjectedTransport({ spawnImpl: () => fakeChild() });
+  const previousAppDir = process.env.CODEX_LINUX_APP_DIR;
+  process.env.CODEX_LINUX_APP_DIR = appDir;
+  try {
+    assert.deepEqual(
+      Array.from(new Transport("/tmp/app-server.sock").authorityArgs()),
+      ["app-server", "--remote-control", "--listen", "unix:///tmp/app-server.sock"],
+    );
+  } finally {
+    if (previousAppDir == null) delete process.env.CODEX_LINUX_APP_DIR;
+    else process.env.CODEX_LINUX_APP_DIR = previousAppDir;
+    fs.rmSync(appDir, { recursive: true, force: true });
+  }
+});
+
+test("shared authority does not enable remote control for untrusted owner markers", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "shared-app-server-untrusted-remote-control-"));
+  const markerDir = path.join(root, ".codex-linux");
+  const marker = path.join(markerDir, "desktop-app-server-remote-control-enabled");
+  const target = path.join(root, "marker-target");
+  fs.mkdirSync(markerDir);
+  const { Transport } = loadInjectedTransport({ spawnImpl: () => fakeChild() });
+  const previousAppDir = process.env.CODEX_LINUX_APP_DIR;
+  try {
+    for (const [label, appDir, setup] of [
+      ["missing", root, () => {}],
+      ["malformed", root, () => fs.writeFileSync(marker, "version=2\nowner=desktop\n")],
+      ["symlink", root, () => {
+        fs.writeFileSync(target, "version=1\nowner=desktop\n");
+        fs.symlinkSync(target, marker);
+      }],
+      ["relative app dir", "relative-app", () => {}],
+    ]) {
+      fs.rmSync(marker, { force: true });
+      setup();
+      process.env.CODEX_LINUX_APP_DIR = appDir;
+      assert.deepEqual(
+        Array.from(new Transport("/tmp/app-server.sock").authorityArgs()),
+        ["app-server", "--listen", "unix:///tmp/app-server.sock"],
+        label,
+      );
+    }
+  } finally {
+    if (previousAppDir == null) delete process.env.CODEX_LINUX_APP_DIR;
+    else process.env.CODEX_LINUX_APP_DIR = previousAppDir;
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("patch leaves unsupported bundle shapes unchanged with a warning", () => {
@@ -605,6 +670,44 @@ test("socket hook exports an instance-scoped path without starting a process", (
       ].join("\n"),
     );
   } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("socket hook adopts a secure canonical authority for remote control", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "shared-app-server-canonical-"));
+  const appDir = path.join(tempDir, "app");
+  const codexHome = path.join(tempDir, "codex-home");
+  const controlDir = path.join(codexHome, "app-server-control");
+  const socketPath = path.join(controlDir, "app-server-control.sock");
+  const markerDir = path.join(appDir, ".codex-linux");
+  fs.mkdirSync(controlDir, { recursive: true, mode: 0o700 });
+  fs.mkdirSync(markerDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(markerDir, "desktop-app-server-remote-control-enabled"),
+    "version=1\nowner=desktop\n",
+  );
+  const server = net.createServer();
+  try {
+    server.listen(socketPath);
+    fs.chmodSync(socketPath, 0o600);
+    const env = {
+      ...process.env,
+      CODEX_HOME: codexHome,
+      CODEX_LINUX_APP_DIR: appDir,
+      CODEX_LINUX_APP_ID: "codex-bridge-test",
+      CODEX_LINUX_APP_STATE_DIR: path.join(tempDir, "state"),
+      XDG_RUNTIME_DIR: tempDir,
+    };
+    delete env.CODEX_LINUX_APP_SERVER_BRIDGE_SOCKET;
+    const result = spawnSync(socketEnvHook, [], { encoding: "utf8", env });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(
+      result.stdout,
+      new RegExp(`CODEX_LINUX_APP_SERVER_BRIDGE_SOCKET=${socketPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`),
+    );
+  } finally {
+    server.close();
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
 });
@@ -699,6 +802,16 @@ test("orphan reaper fails closed on an unknown live listener", async () => {
 
 test("orphan reaper accepts an authority adopted directly by PID 1", () => {
   const authority = authorityProcess({ pid: 2001, ppid: 1 });
+  const verifiedOrphanTargets = loadOrphanReaperVerifier(new Map([[authority.pid, authority]]));
+
+  assert.deepEqual(
+    Array.from(verifiedOrphanTargets(lockedAuthority(authority), [])).map((target) => target.pid),
+    [authority.pid],
+  );
+});
+
+test("orphan reaper accepts its remote-control authority adopted directly by PID 1", () => {
+  const authority = authorityProcess({ pid: 2001, ppid: 1, remoteControl: true });
   const verifiedOrphanTargets = loadOrphanReaperVerifier(new Map([[authority.pid, authority]]));
 
   assert.deepEqual(
@@ -920,6 +1033,36 @@ test("injected transport rejects an existing socket without unlinking it", async
   } finally {
     if (originalCli == null) delete process.env.CODEX_CLI_PATH;
     else process.env.CODEX_CLI_PATH = originalCli;
+    await closeServer(server);
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("injected transport adopts but never stops a secure canonical authority", async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "shared-app-server-adopt-"));
+  const codexHome = path.join(tempDir, "codex-home");
+  const controlDir = path.join(codexHome, "app-server-control");
+  const socketPath = path.join(controlDir, "app-server-control.sock");
+  fs.mkdirSync(controlDir, { recursive: true, mode: 0o700 });
+  const server = await listenUnix(socketPath);
+  fs.chmodSync(socketPath, 0o600);
+  const previousCodexHome = process.env.CODEX_HOME;
+  process.env.CODEX_HOME = codexHome;
+  let spawnCount = 0;
+  const { Transport } = loadInjectedTransport({ spawnImpl: () => {
+    spawnCount += 1;
+    return fakeChild();
+  } });
+  const transport = new Transport(socketPath);
+  try {
+    await transport.ensureAuthority();
+    assert.equal(transport.adoptedAuthority, true);
+    assert.equal(spawnCount, 0);
+    transport.dispose();
+    assert.equal(fs.lstatSync(socketPath).isSocket(), true);
+  } finally {
+    if (previousCodexHome == null) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = previousCodexHome;
     await closeServer(server);
     fs.rmSync(tempDir, { recursive: true, force: true });
   }

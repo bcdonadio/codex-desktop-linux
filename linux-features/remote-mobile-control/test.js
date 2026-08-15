@@ -141,6 +141,23 @@ function syntheticCryptoAliasCollisionMainBundle() {
   ].join("");
 }
 
+function syntheticWrappedNodeModuleMainBundle() {
+  return [
+    'let i=require("node:path"),o=require("node:fs"),s=require("node:crypto"),h=require("node:child_process"),b={createRequire:()=>()=>({})};',
+    "i={default:i},o={default:o},s={default:s};",
+    "function mz(e){return Buffer.from(JSON.stringify({domain:`codex-device-key-sign-payload/v1`,payload:e}),`utf8`)}",
+    "var lz=(0,b.createRequire)(__filename),uz=`remote-control-device-key.node`,dz=`codex-device-key-sign-payload/v1`;",
+    "function pz({resourcesPath:e}){let t=null,n=()=>{if(process.platform!==`darwin`)throw Error(`Remote control device keys are only available on macOS`);if(e==null)throw Error(`Remote control device keys require resourcesPath`);return t??=lz((0,i.default.join)(e,`native`,uz)),t};return{createDeviceKey:e=>n().createDeviceKey(e??`hardware_only`),deleteDeviceKey:e=>n().deleteDeviceKey(e),getDeviceKeyPublic:e=>n().getDeviceKeyPublic(e),signDeviceKey:async(e,t)=>{let r=mz(t);return{...await n().signDeviceKey(e,r),signedPayloadBase64:r.toString(`base64`)}}}}",
+  ].join("");
+}
+
+function syntheticFunctionLocalPathDecoyMainBundle() {
+  return [
+    "let n={unrelated:!0};function injectedFeature(){let n=require(\"node:path\");return n.join(`a`,`b`)}",
+    syntheticCurrentMainBundle(),
+  ].join("");
+}
+
 function createPatchedDeviceKeyClient(configHome, moduleOverrides = {}, processEnv = {}) {
   const patched = applyLinuxRemoteControlDeviceKeyPatch(syntheticMainBundle());
   const context = {
@@ -1112,7 +1129,8 @@ test("Linux remote-control device-key provider does not capture a function-local
   const source = `function injectedFeature(){let __codexChild=require(\`node:child_process\`);return __codexChild}${syntheticMainBundle()}`;
   const patched = applyLinuxRemoteControlDeviceKeyPatch(source);
 
-  assert.match(patched, /require\(`node:child_process`\)\.spawn\(/);
+  assert.match(patched, /codexLinuxRemoteControlChildProcess=require\(`node:child_process`\)/);
+  assert.match(patched, /codexLinuxRemoteControlChildProcess\.spawn\(/);
   assert.doesNotMatch(patched, /__codexChild\.spawn\(/);
 });
 
@@ -1120,8 +1138,10 @@ test("Linux remote-control device-key provider avoids upstream minified alias co
   const configHome = fs.mkdtempSync(path.join(os.tmpdir(), "codex-remote-mobile-key-collision-"));
   try {
     const patched = applyLinuxRemoteControlDeviceKeyPatch(syntheticCryptoAliasCollisionMainBundle());
-    assert.match(patched, /\(0,c\.generateKeyPairSync\)\(`/);
+    assert.match(patched, /codexLinuxRemoteControlCrypto=require\(`node:crypto`\)/);
+    assert.match(patched, /\(0,codexLinuxRemoteControlCrypto\.generateKeyPairSync\)\(`/);
     assert.match(patched, /codexLinuxRemoteControlKeyRecord/);
+    assert.doesNotMatch(patched, /codexLinuxRemoteControlCrypto=c/);
     assert.doesNotMatch(patched, /let c=\{algorithm:`ecdsa_p256_sha256`/);
 
     const context = {
@@ -3039,6 +3059,72 @@ test("patched Linux device-key provider can create, sign with, and delete a key"
   }
 });
 
+test("Linux device-key provider works with upstream namespace-wrapped Node module aliases", async () => {
+  const configHome = fs.mkdtempSync(path.join(os.tmpdir(), "codex-remote-mobile-key-wrapped-modules-"));
+  try {
+    const patched = applyLinuxRemoteControlDeviceKeyPatch(syntheticWrappedNodeModuleMainBundle());
+    const context = {
+      Buffer,
+      clearTimeout,
+      Date,
+      Error,
+      JSON,
+      Promise,
+      console,
+      __filename: path.join(configHome, "main.js"),
+      module: { exports: {} },
+      process: {
+        env: { XDG_CONFIG_HOME: configHome },
+        getuid: typeof process.getuid === "function" ? process.getuid.bind(process) : undefined,
+        pid: process.pid,
+        platform: "linux",
+      },
+      require,
+      setTimeout,
+    };
+
+    vm.runInNewContext(`${patched};module.exports=pz({resourcesPath:null});`, context);
+    const created = await context.module.exports.createDeviceKey("allow_os_protected_nonextractable");
+    assert.equal(created.algorithm, "ecdsa_p256_sha256");
+    assert.equal((await context.module.exports.getDeviceKeyPublic(created.keyId)).keyId, created.keyId);
+  } finally {
+    fs.rmSync(configHome, { recursive: true, force: true });
+  }
+});
+
+test("Linux device-key provider ignores earlier function-local Node module decoys", async () => {
+  const configHome = fs.mkdtempSync(path.join(os.tmpdir(), "codex-remote-mobile-key-scope-decoy-"));
+  try {
+    const patched = applyLinuxRemoteControlDeviceKeyPatch(syntheticFunctionLocalPathDecoyMainBundle());
+    const context = {
+      Buffer,
+      clearTimeout,
+      Date,
+      Error,
+      JSON,
+      Promise,
+      console,
+      __filename: path.join(configHome, "main.js"),
+      module: { exports: {} },
+      process: {
+        env: { XDG_CONFIG_HOME: configHome },
+        getuid: typeof process.getuid === "function" ? process.getuid.bind(process) : undefined,
+        pid: process.pid,
+        platform: "linux",
+      },
+      require,
+      setTimeout,
+    };
+
+    vm.runInNewContext(`${patched};module.exports=pz({resourcesPath:null});`, context);
+    const created = await context.module.exports.createDeviceKey("allow_os_protected_nonextractable");
+    assert.equal(created.algorithm, "ecdsa_p256_sha256");
+    assert.equal((await context.module.exports.getDeviceKeyPublic(created.keyId)).keyId, created.keyId);
+  } finally {
+    fs.rmSync(configHome, { recursive: true, force: true });
+  }
+});
+
 test("Linux device-key provider encrypts protected records and decrypts them for signing", async () => {
   const configHome = fs.mkdtempSync(path.join(os.tmpdir(), "codex-remote-mobile-key-safe-storage-"));
   try {
@@ -3087,6 +3173,35 @@ test("Linux device-key provider falls back for basic_text and unavailable safeSt
     assert.equal(unavailableRecord.detectedBackend, "unavailable");
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Linux device-key provider invalidates encrypted enrollment when its keychain is unavailable", async () => {
+  const configHome = fs.mkdtempSync(path.join(os.tmpdir(), "codex-remote-mobile-key-stale-keychain-"));
+  try {
+    const storage = createSafeStorage();
+    const protectedClient = createPatchedDeviceKeyClient(configHome, {
+      electron: { safeStorage: storage.safeStorage },
+    });
+    const created = await protectedClient.createDeviceKey("allow_os_protected_nonextractable");
+    const unavailableClient = createPatchedDeviceKeyClient(configHome, { electron: {} });
+
+    await assert.rejects(
+      () => unavailableClient.getDeviceKeyPublic(created.keyId),
+      /Remote-control client key material missing/u,
+    );
+    await assert.rejects(
+      () => unavailableClient.signDeviceKey(created.keyId, { nonce: "stale-keychain" }),
+      /Remote-control client key material missing/u,
+    );
+
+    const record = JSON.parse(fs.readFileSync(remoteControlKeyStorePaths(configHome).store, "utf8"))
+      .keys[created.keyId];
+    assert.equal(record.storageBackend, "gnome_libsecret");
+    assert.equal(typeof record.privateKeyCiphertextBase64, "string");
+    assert.equal(record.privateKeyPkcs8Pem, undefined);
+  } finally {
+    fs.rmSync(configHome, { recursive: true, force: true });
   }
 });
 

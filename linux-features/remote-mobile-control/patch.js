@@ -3,12 +3,6 @@
 const fs = require("node:fs");
 const path = require("node:path");
 
-function requireName(source, moduleName) {
-  const escaped = moduleName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const match = source.match(new RegExp(`([A-Za-z_$][\\w$]*)=require\\("${escaped}"\\)`));
-  return match?.[1] ?? null;
-}
-
 const DEVICE_KEY_CLIENT_MARKER = "codexLinuxRemoteControlDeviceKeyClient";
 const DEVICE_KEY_GUARD =
   "if(process.platform!==`darwin`)throw Error(`Remote control device keys are only available on macOS`);";
@@ -89,8 +83,17 @@ function replaceOnce(source, needle, replacement) {
   return source.replace(needle, replacement);
 }
 
-function linuxDeviceKeyProviderSource({ childProcessVar, cryptoVar, fsVar, pathVar }) {
+function linuxDeviceKeyProviderSource() {
+  const stableChildProcessVar = "codexLinuxRemoteControlChildProcess";
+  const stableCryptoVar = "codexLinuxRemoteControlCrypto";
+  const stableFsVar = "codexLinuxRemoteControlFs";
+  const stablePathVar = "codexLinuxRemoteControlPath";
+  const childProcessVar = stableChildProcessVar;
+  const cryptoVar = stableCryptoVar;
+  const fsVar = stableFsVar;
+  const pathVar = stablePathVar;
   return [
+    `const ${stableChildProcessVar}=require(\`node:child_process\`),${stableCryptoVar}=require(\`node:crypto\`),${stableFsVar}=require(\`node:fs\`),${stablePathVar}=require(\`node:path\`);`,
     "const codexLinuxRemoteControlKeyStoreVersion=2,codexLinuxRemoteControlKeyStoreMaxBytes=1048576,codexLinuxRemoteControlKeyStoreMaxKeys=64;",
     "function codexLinuxRemoteControlAssertOwnedRegularStat(e){if(!e.isFile())throw Error(`Linux remote control key state must be a regular file`);if(typeof process.getuid==`function`&&e.uid!==process.getuid())throw Error(`Linux remote control key state is owned by another user`);if((e.mode&511)!==384)throw Error(`Linux remote control key state permissions must be 0600`);return e}",
     "function codexLinuxRemoteControlAssertOwnedRegularFile(e,t){let n=t.lstatSync(e);if(n.isSymbolicLink())throw Error(`Linux remote control key state must be a regular file`);return codexLinuxRemoteControlAssertOwnedRegularStat(n)}",
@@ -126,9 +129,9 @@ function linuxDeviceKeyProviderSource({ childProcessVar, cryptoVar, fsVar, pathV
     "}",
     "function codexLinuxRemoteControlPrivateKeyPem(codexLinuxRemoteControlKeyRecord){",
     "if(typeof codexLinuxRemoteControlKeyRecord.privateKeyPkcs8Pem===`string`)return codexLinuxRemoteControlKeyRecord.privateKeyPkcs8Pem;",
-    "if(typeof codexLinuxRemoteControlKeyRecord.privateKeyCiphertextBase64!==`string`)throw Error(`Linux remote control device key has no private key material`);",
-    "let codexLinuxRemoteControlStorageState=codexLinuxRemoteControlStorage();if(codexLinuxRemoteControlStorageState.safeStorage==null)throw Error(`Linux remote control device keychain is unavailable`);",
-    "try{return codexLinuxRemoteControlStorageState.safeStorage.decryptString(Buffer.from(codexLinuxRemoteControlKeyRecord.privateKeyCiphertextBase64,`base64`))}catch(codexLinuxRemoteControlDecryptError){throw Error(`Failed to decrypt Linux remote control device key`)}",
+    "if(typeof codexLinuxRemoteControlKeyRecord.privateKeyCiphertextBase64!==`string`)throw Error(`Remote-control client key material missing`);",
+    "let codexLinuxRemoteControlStorageState=codexLinuxRemoteControlStorage();if(codexLinuxRemoteControlStorageState.safeStorage==null)throw Error(`Remote-control client key material missing`);",
+    "try{return codexLinuxRemoteControlStorageState.safeStorage.decryptString(Buffer.from(codexLinuxRemoteControlKeyRecord.privateKeyCiphertextBase64,`base64`))}catch(codexLinuxRemoteControlDecryptError){throw Error(`Remote-control client key material missing`)}",
     "}",
     "function codexLinuxReadRemoteControlDeviceKeyStore(){",
     "let codexLinuxRemoteControlKeyStorePath=codexLinuxRemoteControlDeviceKeyStorePath();",
@@ -155,7 +158,7 @@ function linuxDeviceKeyProviderSource({ childProcessVar, cryptoVar, fsVar, pathV
     "return codexLinuxRemoteControlPublicDeviceKey(codexLinuxRemoteControlKeyRecord)",
     "},",
     "deleteDeviceKey:async codexLinuxRemoteControlKeyId=>codexLinuxWithRemoteControlKeyStoreLock(()=>{let e=codexLinuxReadRemoteControlDeviceKeyStore(),t=codexLinuxRemoteControlMigrateDeviceKeyStore(e)??e;delete t.keys[codexLinuxRemoteControlKeyId],codexLinuxWriteRemoteControlDeviceKeyStore(t)}),",
-    "getDeviceKeyPublic:async codexLinuxRemoteControlKeyId=>codexLinuxWithRemoteControlKeyStoreLock(()=>{let e=codexLinuxReadRemoteControlDeviceKeyStore(),t=codexLinuxRemoteControlMigrateDeviceKeyStore(e)??e;t!==e&&codexLinuxWriteRemoteControlDeviceKeyStore(t);let n=t.keys?.[codexLinuxRemoteControlKeyId];if(n==null)throw Error(`Linux remote control device key not found`);return codexLinuxRemoteControlPublicDeviceKey(n)}),",
+    "getDeviceKeyPublic:async codexLinuxRemoteControlKeyId=>codexLinuxWithRemoteControlKeyStoreLock(()=>{let e=codexLinuxReadRemoteControlDeviceKeyStore(),t=codexLinuxRemoteControlMigrateDeviceKeyStore(e)??e;t!==e&&codexLinuxWriteRemoteControlDeviceKeyStore(t);let n=t.keys?.[codexLinuxRemoteControlKeyId];if(n==null)throw Error(`Linux remote control device key not found`);codexLinuxRemoteControlPrivateKeyPem(n);return codexLinuxRemoteControlPublicDeviceKey(n)}),",
     `signDeviceKey:async(codexLinuxRemoteControlKeyId,codexLinuxRemoteControlPayload)=>codexLinuxWithRemoteControlKeyStoreLock(()=>{let e=codexLinuxReadRemoteControlDeviceKeyStore(),t=codexLinuxRemoteControlMigrateDeviceKeyStore(e)??e;t!==e&&codexLinuxWriteRemoteControlDeviceKeyStore(t);let n=t.keys?.[codexLinuxRemoteControlKeyId];if(n==null)throw Error(\`Linux remote control device key not found\`);let r=(0,${cryptoVar}.createPrivateKey)(codexLinuxRemoteControlPrivateKeyPem(n)),i=(0,${cryptoVar}.sign)(\`sha256\`,codexLinuxRemoteControlPayload,r).toString(\`base64\`);return{algorithm:n.algorithm,signatureDerBase64:i}})`,
     "}}",
   ].join("");
@@ -166,22 +169,13 @@ function applyLinuxRemoteControlDeviceKeyPatch(source) {
     return source;
   }
 
-  const cryptoVar = requireName(source, "node:crypto");
-  const fsVar = requireName(source, "node:fs");
-  const pathVar = requireName(source, "node:path");
-  const childProcessVar = "require(`node:child_process`)";
-  if (cryptoVar == null || fsVar == null || pathVar == null) {
-    console.warn("WARN: Could not find Node module aliases - skipping Linux remote-control device-key patch");
-    return source;
-  }
-
   const insertionNeedle = source.match(DEVICE_KEY_REQUIRE_NEEDLE)?.[0] ?? null;
   if (insertionNeedle == null || !source.includes(DEVICE_KEY_GUARD)) {
     console.warn("WARN: Could not find remote-control device-key bundle needles - skipping Linux remote-control device-key patch");
     return source;
   }
 
-  const provider = linuxDeviceKeyProviderSource({ childProcessVar, cryptoVar, fsVar, pathVar });
+  const provider = linuxDeviceKeyProviderSource();
   return source
     .replace(insertionNeedle, `${provider}${insertionNeedle}`)
     .replace(DEVICE_KEY_GUARD, DEVICE_KEY_GUARD_REPLACEMENT);

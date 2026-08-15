@@ -107,8 +107,10 @@ function isExpectedAuthority(processInfo) {
   return processInfo.commandLine.some(
     (argument, index, commandLine) =>
       argument === "app-server" &&
-      commandLine[index + 1] === "--listen" &&
-      commandLine[index + 2] === listenUrl,
+      ((commandLine[index + 1] === "--listen" && commandLine[index + 2] === listenUrl) ||
+        (commandLine[index + 1] === "--remote-control" &&
+          commandLine[index + 2] === "--listen" &&
+          commandLine[index + 3] === listenUrl)),
   );
 }
 
