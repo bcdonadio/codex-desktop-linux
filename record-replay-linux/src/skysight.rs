@@ -3604,6 +3604,7 @@ mod tests {
         let _guard = env_guard();
         let temp = tempfile::tempdir().unwrap();
         let paths = SkysightPaths::new(temp.path().join("runtime"), temp.path().join("resources"));
+        write_summary_agent_runtime_setting(&paths, false).unwrap();
 
         let stopped = capture_skysight_snapshot(&paths, Some("snapshot-only")).unwrap();
         assert_eq!(stopped.state, "stopped");
@@ -3677,6 +3678,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let paths = SkysightPaths::new(temp.path().join("runtime"), temp.path().join("resources"));
         ensure_layout(&paths).unwrap();
+        write_summary_agent_runtime_setting(&paths, false).unwrap();
 
         let mut reassigned = status_value(StatusValueInput {
             paths: &paths,

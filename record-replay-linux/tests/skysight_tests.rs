@@ -37,6 +37,11 @@ fn write_running_status(paths: &SkysightPaths, owner: &str, source: &str) {
     .unwrap();
 }
 
+fn disable_summary_agent(paths: &SkysightPaths) {
+    fs::create_dir_all(&paths.runtime_dir).unwrap();
+    fs::write(&paths.summary_agent_setting_path, "disabled\n").unwrap();
+}
+
 #[test]
 fn skysight_owned_stop_records_owner_and_initiating_source() {
     let temp = tempfile::tempdir().unwrap();
@@ -180,6 +185,7 @@ fn skysight_migrates_legacy_exclusions_with_daemon_path_overrides() {
 fn skysight_snapshot_creates_segment_directory_and_rollup_resources() {
     let temp = tempfile::tempdir().unwrap();
     let paths = SkysightPaths::new(temp.path().join("runtime"), temp.path().join("resources"));
+    disable_summary_agent(&paths);
 
     let status = capture_skysight_snapshot(&paths, Some("test")).unwrap();
 
@@ -354,6 +360,7 @@ fn skysight_status_reports_fake_tesseract_ocr_readiness() {
 fn skysight_pause_and_resume_gate_snapshot_capture() {
     let temp = tempfile::tempdir().unwrap();
     let paths = SkysightPaths::new(temp.path().join("runtime"), temp.path().join("resources"));
+    disable_summary_agent(&paths);
 
     let paused = pause_skysight(&paths, Some("focus on review".to_string())).unwrap();
     assert_eq!(paused.state, "paused");
@@ -387,6 +394,7 @@ fn skysight_pause_and_resume_gate_snapshot_capture() {
 fn skysight_status_does_not_treat_running_without_pid_as_alive() {
     let temp = tempfile::tempdir().unwrap();
     let paths = SkysightPaths::new(temp.path().join("runtime"), temp.path().join("resources"));
+    disable_summary_agent(&paths);
 
     capture_skysight_snapshot(&paths, Some("legacy-status")).unwrap();
     let mut status: Value = serde_json::from_str(&fs::read_to_string(&paths.status_path).unwrap())
