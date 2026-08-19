@@ -111,7 +111,8 @@ once in release mode before staging the application. The packaged update-builder
 reuses these executables during future official-package updates and never ships
 or runs the full Cargo workspace.
 
-To limit local build concurrency:
+Native builds use 12 Cargo and package-compression workers by default. To
+choose a different concurrency limit:
 
 ```bash
 MAX_BUILD_THREADS=4 make install-native

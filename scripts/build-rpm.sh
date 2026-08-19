@@ -13,7 +13,7 @@ PACKAGED_RUNTIME_TEMPLATE="$REPO_DIR/packaging/linux/codex-packaged-runtime.sh"
 
 PACKAGE_NAME="${PACKAGE_NAME:-codex-desktop}"
 PACKAGE_VERSION="${PACKAGE_VERSION:-$(date -u +%Y.%m.%d.%H%M%S)}"
-MAX_BUILD_THREADS="${MAX_BUILD_THREADS:-0}"
+MAX_BUILD_THREADS="${MAX_BUILD_THREADS:-12}"
 RPM_BINARY_PAYLOAD="${RPM_BINARY_PAYLOAD:-}"
 UPDATER_BINARY_SOURCE="${UPDATER_BINARY_SOURCE:-$REPO_DIR/target/release/codex-update-manager}"
 UPDATER_SERVICE_SOURCE="${UPDATER_SERVICE_SOURCE:-$SERVICE_TEMPLATE}"
@@ -66,8 +66,12 @@ rpm_version_parts() {
 
 main() {
     validate_max_build_threads
-    if [ -z "$RPM_BINARY_PAYLOAD" ] && [ "$MAX_BUILD_THREADS" != "0" ]; then
-        RPM_BINARY_PAYLOAD="w19T${MAX_BUILD_THREADS}.zstdio"
+    if [ -z "$RPM_BINARY_PAYLOAD" ]; then
+        if [ "$MAX_BUILD_THREADS" = "0" ]; then
+            RPM_BINARY_PAYLOAD="w7.zstdio"
+        else
+            RPM_BINARY_PAYLOAD="w7T${MAX_BUILD_THREADS}.zstdio"
+        fi
     fi
 
     ensure_app_layout

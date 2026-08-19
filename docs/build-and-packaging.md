@@ -174,7 +174,8 @@ launcher still enforces the sandbox policy.
 | `NEXT_APP_DIR` | `./codex-app-next` | Side-by-side candidate directory |
 | `PACKAGE_WITH_UPDATER` | `1` | Include the native updater when supported |
 | `PACKAGE_VERSION` | upstream-derived | Override wrapper package version for release work |
-| `MAX_BUILD_THREADS` | `0` | Limit Cargo and package-compression jobs; `0` uses tool defaults |
+| `MAX_BUILD_THREADS` | `12` | Limit Cargo and package-compression jobs; `0` uses tool defaults |
+| `RPM_BINARY_PAYLOAD` | `w7T${MAX_BUILD_THREADS}.zstdio` | Override RPM payload compression; the default uses Zstd level 7 and the configured worker count |
 | `CODEX_LINUX_FEATURES_CONFIG` | local or example config | Select the feature configuration |
 
 Example:
