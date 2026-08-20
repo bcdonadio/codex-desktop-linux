@@ -607,6 +607,50 @@ test("remote mobile stage hook relies on the official single-instance lifecycle"
   }
 });
 
+test("remote mobile stage hook recognizes native Chrome routing in the current browser service", () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "codex-remote-mobile-stage-"));
+  try {
+    const installDir = path.join(tempRoot, "package", "opt", "codex-desktop");
+    const workDir = path.join(tempRoot, "work");
+    const buildDir = path.join(workDir, "app-extracted", ".vite", "build");
+    const scriptsDir = path.join(
+      installDir,
+      "resources",
+      "plugins",
+      "openai-bundled",
+      "plugins",
+      "chrome",
+      "scripts",
+    );
+    const client = "globalThis.nodeRepl.rpc(`browser`,{method:`setup`});";
+    const service = syntheticModernChromeBrowserClientBundle();
+
+    fs.mkdirSync(buildDir, { recursive: true });
+    fs.mkdirSync(scriptsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(buildDir, "main.js"),
+      applyLinuxRemoteMobileAppServerRemoteControlPatch(syntheticCurrentLocalAppServerLaunchBundle()),
+    );
+    fs.writeFileSync(path.join(scriptsDir, "browser-client.mjs"), client);
+    fs.writeFileSync(path.join(scriptsDir, "browser-service.mjs"), service);
+
+    const result = runStageHook({
+      ARCH: "x64",
+      CODEX_UPSTREAM_APP_DIR: path.join(tempRoot, "upstream-app"),
+      INSTALL_DIR: installDir,
+      SCRIPT_DIR: REPO_ROOT,
+      WORK_DIR: workDir,
+    });
+
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.doesNotMatch(result.stderr, /backend allowlist needles/);
+    assert.equal(fs.readFileSync(path.join(scriptsDir, "browser-client.mjs"), "utf8"), client);
+    assert.equal(fs.readFileSync(path.join(scriptsDir, "browser-service.mjs"), "utf8"), service);
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("remote mobile stage hook removes a stale ownership marker when only the legacy WSL patch marker exists", () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "codex-remote-mobile-stage-"));
   try {
