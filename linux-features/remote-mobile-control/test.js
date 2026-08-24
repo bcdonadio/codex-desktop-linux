@@ -1154,6 +1154,14 @@ test("Linux remote-control device-key provider does not capture a function-local
   assert.doesNotMatch(patched, /__codexChild\.spawn\(/);
 });
 
+test("Linux remote-control device-key provider does not capture a function-local path alias", () => {
+  const source = `function injectedFeature(){let n=require("node:path");return n}${syntheticMainBundle()}`;
+  const patched = applyLinuxRemoteControlDeviceKeyPatch(source);
+
+  assert.match(patched, /codexLinuxRemoteControlPath\.isAbsolute\(/);
+  assert.doesNotMatch(patched, /n\.isAbsolute\(codexLinuxRemoteControlConfigRoot\)/);
+});
+
 test("Linux remote-control device-key provider avoids upstream minified alias collisions", async () => {
   const configHome = fs.mkdtempSync(path.join(os.tmpdir(), "codex-remote-mobile-key-collision-"));
   try {
