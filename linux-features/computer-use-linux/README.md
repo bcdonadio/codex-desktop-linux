@@ -1,7 +1,8 @@
 # Linux Computer Use
 
-Disabled-by-default Linux Computer Use integration. It owns the six current
-ASAR descriptors and the native MCP
+Disabled-by-default Linux Computer Use integration. It owns the seven current
+ASAR descriptors, including the local thread-resume MCP transport compatibility
+patch, and the native MCP
 plugin staged only when explicitly enabled. Immutable Nix packages receive
 their bundled-marketplace staging permission repair from the separate internal
 `nix-store-bundled-marketplace-permissions` feature.

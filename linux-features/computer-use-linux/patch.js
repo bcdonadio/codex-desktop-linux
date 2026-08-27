@@ -5,6 +5,7 @@ const {
   applyLinuxComputerUseAvatarCursorBridgePatch,
   applyLinuxComputerUseFeaturePatch,
   applyLinuxComputerUseHostPlatformPatch,
+  applyLinuxCodexAppThreadConfigPatch,
   applyLinuxComputerUsePluginGatePatch,
   applyLinuxComputerUseRendererAvailabilityPatch,
   applyLinuxNativeDesktopAppsHandlerPatch,
@@ -39,6 +40,13 @@ module.exports = [
     order: 20_130,
     ciPolicy: "optional",
     apply: applyLinuxNativeDesktopAppsHandlerPatch,
+  }),
+  mainBundlePatch({
+    id: "codex-app-thread-config",
+    phase: "main-bundle",
+    order: 20_135,
+    ciPolicy: "optional",
+    apply: applyLinuxCodexAppThreadConfigPatch,
   }),
   webviewAssetPatch({
     id: "ui-availability",
