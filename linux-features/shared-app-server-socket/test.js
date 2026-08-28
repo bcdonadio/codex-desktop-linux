@@ -17,6 +17,7 @@ const {
   stageEnabledLinuxFeatureInstall,
 } = require("../../scripts/lib/linux-features.js");
 const {
+  applySharedAppServerWriterConflictUiPatch,
   applySharedAppServerSocketPatch,
   descriptors,
   sharedTransportClassSource,
@@ -25,6 +26,18 @@ const {
 const socketEnvHook = path.join(__dirname, "socket-env.sh");
 const orphanReaper = path.join(__dirname, "orphan-reaper.js");
 const unixSocketPathMaxBytes = 107;
+
+test("writer conflicts stay read-only without showing the cross-app lock banner", () => {
+  const source =
+    "let S;t[3]!==v||t[4]!==y||t[5]!==b?(S=y?(0,$.jsx)(Tk,{isResuming:v,onRetry:b}):void 0,t[3]=v,t[4]=y,t[5]=b,t[6]=S):S=t[6];let C=!u||y,w=v&&!y,T=u&&!y;";
+  const patched = applySharedAppServerWriterConflictUiPatch(source);
+
+  assert.notEqual(patched, source);
+  assert.match(patched, /S=void 0/);
+  assert.doesNotMatch(patched, /S=y\?/);
+  assert.match(patched, /let C=!u\|\|y,w=v&&!y,T=u&&!y/);
+  assert.equal(applySharedAppServerWriterConflictUiPatch(patched), patched);
+});
 
 function makeSocketTempDir(prefix, socketRelativePath = "app-server.sock") {
   for (const root of [...new Set([os.tmpdir(), "/tmp"])]) {
@@ -517,7 +530,10 @@ test("shared-app-server-socket stays disabled until explicitly enabled", () => {
   withFeatureConfig(["shared-app-server-socket"], (featuresRoot) => {
     assert.deepEqual(
       loadLinuxFeaturePatchDescriptors({ featuresRoot }).map((entry) => entry.id),
-      ["feature:shared-app-server-socket:main-process-shared-app-server-socket"],
+      [
+        "feature:shared-app-server-socket:main-process-shared-app-server-socket",
+        "feature:shared-app-server-socket:writer-conflict-read-only-ui",
+      ],
     );
   });
 });
@@ -643,10 +659,13 @@ test("injected transport requires the captured config override callback", () => 
   );
 });
 
-test("descriptor is optional and targets the main bundle", () => {
+test("descriptors are optional and target the main and writer-conflict bundles", () => {
   assert.deepEqual(
     descriptors.map(({ id, phase, ciPolicy }) => [id, phase, ciPolicy]),
-    [["main-process-shared-app-server-socket", "main-bundle", "optional"]],
+    [
+      ["main-process-shared-app-server-socket", "main-bundle", "optional"],
+      ["writer-conflict-read-only-ui", "webview-asset", "optional"],
+    ],
   );
 });
 

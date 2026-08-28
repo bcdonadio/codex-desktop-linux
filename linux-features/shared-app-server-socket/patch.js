@@ -1,6 +1,24 @@
 "use strict";
 
 const IDENT = "[A-Za-z_$][\\w$]*";
+const WRITER_CONFLICT_UI_MARKER = "codex-linux-shared-app-server-read-only-conflict";
+const WRITER_CONFLICT_FOOTER_NEEDLE =
+  "S=y?(0,$.jsx)(Tk,{isResuming:v,onRetry:b}):void 0";
+
+function applySharedAppServerWriterConflictUiPatch(source) {
+  if (source.includes(WRITER_CONFLICT_UI_MARKER)) return source;
+  const matches = source.split(WRITER_CONFLICT_FOOTER_NEEDLE).length - 1;
+  if (matches !== 1) {
+    console.warn(
+      `WARN: Expected one shared app-server writer-conflict footer, found ${matches}`,
+    );
+    return source;
+  }
+  return source.replace(
+    WRITER_CONFLICT_FOOTER_NEEDLE,
+    `S=void 0/*${WRITER_CONFLICT_UI_MARKER}*/`,
+  );
+}
 
 function findTransportSymbols(source) {
   const classMatch = source.match(
@@ -115,9 +133,23 @@ const descriptors = [
     ciPolicy: "optional",
     apply: applySharedAppServerSocketPatch,
   },
+  {
+    id: "writer-conflict-read-only-ui",
+    phase: "webview-asset",
+    order: 141,
+    ciPolicy: "optional",
+    pattern: /^local-conversation-thread-[^.]+\.js$/,
+    assetMatch: (source) =>
+      source.includes(WRITER_CONFLICT_FOOTER_NEEDLE) ||
+      source.includes(WRITER_CONFLICT_UI_MARKER),
+    missingDescription: "local conversation writer-conflict UI bundle",
+    skipDescription: "shared app-server read-only writer-conflict UI patch",
+    apply: applySharedAppServerWriterConflictUiPatch,
+  },
 ];
 
 module.exports = {
+  applySharedAppServerWriterConflictUiPatch,
   applySharedAppServerSocketPatch,
   descriptors,
   findTransportSymbols,
