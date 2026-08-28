@@ -30,8 +30,12 @@ An explicit `CODEX_CLI_PATH` remains supported and is preserved by the feature
 hook.
 
 The default socket is scoped by Linux app id under `XDG_RUNTIME_DIR`, preventing
-side-by-side Desktop instances from sharing an authority accidentally. Override
-it with `CODEX_LINUX_APP_SERVER_BRIDGE_SOCKET` when a stable path is required.
+side-by-side Desktop instances from sharing an authority accidentally. Desktop
+does not automatically adopt the separate canonical Codex control-plane socket
+under `CODEX_HOME`. Override the default with
+`CODEX_LINUX_APP_SERVER_BRIDGE_SOCKET` when a stable path is required, but
+reserve that path for this Desktop authority; it must not already be owned by
+another process.
 The Codex app-server creates the socket with user-only permissions. A shell
 wrapper may route bare `codex app-server proxy` SSH sessions to this path.
 Keep the socket in a directory accessible only to the owning user. It is a local

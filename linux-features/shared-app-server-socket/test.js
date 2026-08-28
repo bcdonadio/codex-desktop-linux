@@ -677,7 +677,7 @@ test("socket hook exports an instance-scoped path without starting a process", (
   }
 });
 
-test("socket hook adopts a secure canonical authority for remote control", () => {
+test("socket hook ignores a separately owned canonical authority", () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "shared-app-server-canonical-"));
   const appDir = path.join(tempDir, "app");
   const codexHome = path.join(tempDir, "codex-home");
@@ -705,9 +705,9 @@ test("socket hook adopts a secure canonical authority for remote control", () =>
     delete env.CODEX_LINUX_APP_SERVER_BRIDGE_SOCKET;
     const result = spawnSync(socketEnvHook, [], { encoding: "utf8", env });
     assert.equal(result.status, 0, result.stderr);
-    assert.match(
-      result.stdout,
-      new RegExp(`CODEX_LINUX_APP_SERVER_BRIDGE_SOCKET=${socketPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`),
+    assert.equal(
+      result.stdout.trim().split("\n")[0],
+      `env CODEX_LINUX_APP_SERVER_BRIDGE_SOCKET=${tempDir}/codex-bridge-test/app-server-bridge/app-server.sock`,
     );
   } finally {
     server.close();
