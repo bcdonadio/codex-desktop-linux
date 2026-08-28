@@ -17,11 +17,6 @@ PATH` byte tunnel and its existing WebSocket transport. Other local clients use
 the same stock proxy command to attach to the Unix socket and receive the normal
 WebSocket `/rpc` byte stream. Closing Desktop stops the authority.
 
-When another app-server process already owns a thread's cross-process writer
-lock, Desktop preserves that thread as read-only history instead of presenting
-the cross-app Retry banner. The writer lock remains enforced: Desktop does not
-resume the thread or expose its composer until ownership is released.
-
 The feature preserves the configuration overrides supplied by the official
 local transport. It forwards each opaque override as an ordered `-c` argument
 before the `app-server` subcommand when it starts the shared authority. It does
