@@ -21,7 +21,11 @@ socket.once("error", () => { clearTimeout(timer); finish(false); });
 
 canonical_socket="${CODEX_HOME:-$HOME/.codex}/app-server-control/app-server-control.sock"
 remote_control_marker="${CODEX_LINUX_APP_DIR:-}/.codex-linux/desktop-app-server-remote-control-enabled"
-if [ -z "${CODEX_LINUX_APP_SERVER_BRIDGE_SOCKET:-}" ] &&
+if [ "${CODEX_LINUX_FEATURE_HOOK_PHASE:-launcher}" = "after-exit" ] &&
+    [ "${CODEX_LINUX_ADOPT_CANONICAL_APP_SERVER:-}" = "1" ] &&
+    [ "${CODEX_LINUX_APP_SERVER_BRIDGE_SOCKET:-}" = "$canonical_socket" ]; then
+    adopted_canonical=1
+elif [ -z "${CODEX_LINUX_APP_SERVER_BRIDGE_SOCKET:-}" ] &&
     [ -f "$remote_control_marker" ] && [ ! -L "$remote_control_marker" ] &&
     [ "$(cat "$remote_control_marker" 2>/dev/null || true)" = "version=1
 owner=desktop" ] &&

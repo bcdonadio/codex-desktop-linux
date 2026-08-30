@@ -1004,6 +1004,48 @@ test("socket hook emits no launcher environment during after-exit cleanup", () =
   }
 });
 
+test("after-exit preserves canonical adoption and reaps only the private fallback", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "shared-app-server-after-exit-adopted-"));
+  const appDir = path.join(tempDir, "app");
+  const codexHome = path.join(tempDir, "codex-home");
+  const canonicalSocket = path.join(
+    codexHome,
+    "app-server-control",
+    "app-server-control.sock",
+  );
+  const privateSocket = path.join(tempDir, "private", "app-server.sock");
+  const observedPaths = path.join(tempDir, "reaper-paths");
+  const stagedReaper = path.join(
+    appDir,
+    ".codex-linux/features/shared-app-server-socket/orphan-reaper.js",
+  );
+  fs.mkdirSync(path.dirname(stagedReaper), { recursive: true });
+  fs.writeFileSync(
+    stagedReaper,
+    `require("node:fs").appendFileSync(${JSON.stringify(observedPaths)}, process.argv[2] + "\\n");\n`,
+  );
+  const env = {
+    ...process.env,
+    CODEX_HOME: codexHome,
+    CODEX_LINUX_ADOPT_CANONICAL_APP_SERVER: "1",
+    CODEX_LINUX_APP_DIR: appDir,
+    CODEX_LINUX_APP_ID: "codex-bridge-test",
+    CODEX_LINUX_APP_SERVER_BRIDGE_SOCKET: canonicalSocket,
+    CODEX_LINUX_APP_SERVER_PRIVATE_FALLBACK_SOCKET: privateSocket,
+    CODEX_LINUX_APP_STATE_DIR: path.join(tempDir, "state"),
+    CODEX_LINUX_FEATURE_HOOK_PHASE: "after-exit",
+    XDG_RUNTIME_DIR: tempDir,
+  };
+  try {
+    const result = spawnSync(socketEnvHook, [], { encoding: "utf8", env });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout, "");
+    assert.equal(fs.readFileSync(observedPaths, "utf8"), `${privateSocket}\n`);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("orphan reaper preserves a live owner and its listener", async () => {
   const tempDir = makeSocketTempDir("shared-app-server-live-reaper-");
   const socketPath = path.join(tempDir, "app-server.sock");
