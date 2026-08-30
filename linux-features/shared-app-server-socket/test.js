@@ -673,6 +673,9 @@ test("socket hook exports an instance-scoped path without starting a process", (
       [
         `env CODEX_LINUX_APP_SERVER_BRIDGE_SOCKET=${tempDir}/codex-bridge-test/app-server-bridge/app-server.sock`,
         `env CODEX_CLI_PATH=${appDir}/resources/codex`,
+        `env CODEX_INSTALL_DIR=${appDir}/resources`,
+        "env CODEX_LINUX_ADOPT_CANONICAL_APP_SERVER=",
+        "env CODEX_LINUX_APP_SERVER_PRIVATE_FALLBACK_SOCKET=",
       ].join("\n"),
     );
   } finally {
@@ -680,7 +683,7 @@ test("socket hook exports an instance-scoped path without starting a process", (
   }
 });
 
-test("socket hook ignores a separately owned canonical authority", () => {
+test("socket hook selects a secure canonical authority for adoption", () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "shared-app-server-canonical-"));
   const appDir = path.join(tempDir, "app");
   const codexHome = path.join(tempDir, "codex-home");
@@ -708,12 +711,252 @@ test("socket hook ignores a separately owned canonical authority", () => {
     delete env.CODEX_LINUX_APP_SERVER_BRIDGE_SOCKET;
     const result = spawnSync(socketEnvHook, [], { encoding: "utf8", env });
     assert.equal(result.status, 0, result.stderr);
+    assert.match(
+      result.stdout,
+      new RegExp(`CODEX_LINUX_APP_SERVER_BRIDGE_SOCKET=${socketPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`),
+    );
+  } finally {
+    server.close();
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("socket hook rejects an insecure canonical authority and keeps the private fallback", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "shared-app-server-canonical-unsafe-"));
+  const appDir = path.join(tempDir, "app");
+  const codexHome = path.join(tempDir, "codex-home");
+  const controlDir = path.join(codexHome, "app-server-control");
+  const socketPath = path.join(controlDir, "app-server-control.sock");
+  const markerDir = path.join(appDir, ".codex-linux");
+  fs.mkdirSync(controlDir, { recursive: true, mode: 0o700 });
+  fs.mkdirSync(markerDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(markerDir, "desktop-app-server-remote-control-enabled"),
+    "version=1\nowner=desktop\n",
+  );
+  const server = net.createServer();
+  try {
+    server.listen(socketPath);
+    fs.chmodSync(socketPath, 0o666);
+    const env = {
+      ...process.env,
+      CODEX_HOME: codexHome,
+      CODEX_LINUX_APP_DIR: appDir,
+      CODEX_LINUX_APP_ID: "codex-bridge-test",
+      CODEX_LINUX_APP_STATE_DIR: path.join(tempDir, "state"),
+      XDG_RUNTIME_DIR: tempDir,
+    };
+    delete env.CODEX_LINUX_APP_SERVER_BRIDGE_SOCKET;
+    const result = spawnSync(socketEnvHook, [], { encoding: "utf8", env });
+    assert.equal(result.status, 0, result.stderr);
     assert.equal(
       result.stdout.trim().split("\n")[0],
       `env CODEX_LINUX_APP_SERVER_BRIDGE_SOCKET=${tempDir}/codex-bridge-test/app-server-bridge/app-server.sock`,
     );
   } finally {
     server.close();
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("socket hook rejects a stale canonical socket and keeps the private fallback", async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "shared-app-server-canonical-stale-"));
+  const appDir = path.join(tempDir, "app");
+  const codexHome = path.join(tempDir, "codex-home");
+  const controlDir = path.join(codexHome, "app-server-control");
+  const socketPath = path.join(controlDir, "app-server-control.sock");
+  const markerDir = path.join(appDir, ".codex-linux");
+  fs.mkdirSync(controlDir, { recursive: true, mode: 0o700 });
+  fs.mkdirSync(markerDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(markerDir, "desktop-app-server-remote-control-enabled"),
+    "version=1\nowner=desktop\n",
+  );
+  const staleServer = spawnSync(
+    process.execPath,
+    [
+      "-e",
+      'const net=require("node:net");const p=process.argv[1];net.createServer().listen(p,()=>process.kill(process.pid,"SIGKILL"));',
+      socketPath,
+    ],
+    { encoding: "utf8" },
+  );
+  assert.equal(staleServer.signal, "SIGKILL", staleServer.stderr);
+  assert.equal(fs.lstatSync(socketPath).isSocket(), true);
+  fs.chmodSync(socketPath, 0o600);
+  const env = {
+    ...process.env,
+    CODEX_HOME: codexHome,
+    CODEX_LINUX_APP_DIR: appDir,
+    CODEX_LINUX_APP_ID: "codex-bridge-test",
+    CODEX_LINUX_APP_STATE_DIR: path.join(tempDir, "state"),
+    XDG_RUNTIME_DIR: tempDir,
+  };
+  delete env.CODEX_LINUX_APP_SERVER_BRIDGE_SOCKET;
+  try {
+    const result = spawnSync(socketEnvHook, [], { encoding: "utf8", env });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(
+      result.stdout.trim().split("\n")[0],
+      `env CODEX_LINUX_APP_SERVER_BRIDGE_SOCKET=${tempDir}/codex-bridge-test/app-server-bridge/app-server.sock`,
+    );
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("explicit canonical socket override does not authorize adoption without launcher proof", async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "shared-app-server-explicit-canonical-"));
+  const codexHome = path.join(tempDir, "codex-home");
+  const controlDir = path.join(codexHome, "app-server-control");
+  const socketPath = path.join(controlDir, "app-server-control.sock");
+  fs.mkdirSync(controlDir, { recursive: true, mode: 0o700 });
+  const server = await listenUnix(socketPath);
+  fs.chmodSync(socketPath, 0o600);
+  const previousAdopt = process.env.CODEX_LINUX_ADOPT_CANONICAL_APP_SERVER;
+  const previousCodexHome = process.env.CODEX_HOME;
+  const previousCli = process.env.CODEX_CLI_PATH;
+  delete process.env.CODEX_LINUX_ADOPT_CANONICAL_APP_SERVER;
+  process.env.CODEX_HOME = codexHome;
+  process.env.CODEX_CLI_PATH = "/fake/codex";
+  const { Transport } = loadInjectedTransport();
+  const transport = new Transport(socketPath);
+  try {
+    await assert.rejects(transport.ensureAuthority(), /path already exists/);
+    assert.equal(transport.adoptedAuthority, false);
+  } finally {
+    if (previousAdopt == null) delete process.env.CODEX_LINUX_ADOPT_CANONICAL_APP_SERVER;
+    else process.env.CODEX_LINUX_ADOPT_CANONICAL_APP_SERVER = previousAdopt;
+    if (previousCodexHome == null) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = previousCodexHome;
+    if (previousCli == null) delete process.env.CODEX_CLI_PATH;
+    else process.env.CODEX_CLI_PATH = previousCli;
+    await closeServer(server);
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("launcher clears inherited adoption proof for an explicit canonical override", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "shared-app-server-inherited-adopt-"));
+  const codexHome = path.join(tempDir, "codex-home");
+  const controlDir = path.join(codexHome, "app-server-control");
+  const socketPath = path.join(controlDir, "app-server-control.sock");
+  const server = net.createServer();
+  fs.mkdirSync(controlDir, { recursive: true, mode: 0o700 });
+  try {
+    server.listen(socketPath);
+    fs.chmodSync(socketPath, 0o600);
+    const result = spawnSync(socketEnvHook, [], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        CODEX_HOME: codexHome,
+        CODEX_LINUX_ADOPT_CANONICAL_APP_SERVER: "1",
+        CODEX_LINUX_APP_DIR: path.join(tempDir, "app"),
+        CODEX_LINUX_APP_ID: "codex-bridge-test",
+        CODEX_LINUX_APP_SERVER_BRIDGE_SOCKET: socketPath,
+        CODEX_LINUX_APP_SERVER_PRIVATE_FALLBACK_SOCKET: path.join(tempDir, "spoofed.sock"),
+        CODEX_LINUX_APP_STATE_DIR: path.join(tempDir, "state"),
+        XDG_RUNTIME_DIR: tempDir,
+      },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /env CODEX_LINUX_ADOPT_CANONICAL_APP_SERVER=/);
+    assert.match(result.stdout, /env CODEX_LINUX_APP_SERVER_PRIVATE_FALLBACK_SOCKET=/);
+    assert.equal(
+      result.stdout.trim().split("\n").every((line) => line.startsWith("env ")),
+      true,
+    );
+  } finally {
+    server.close();
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("injected transport adopts but never stops a secure canonical authority", async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "shared-app-server-adopt-"));
+  const codexHome = path.join(tempDir, "codex-home");
+  const controlDir = path.join(codexHome, "app-server-control");
+  const socketPath = path.join(controlDir, "app-server-control.sock");
+  fs.mkdirSync(controlDir, { recursive: true, mode: 0o700 });
+  const server = await listenUnix(socketPath);
+  fs.chmodSync(socketPath, 0o600);
+  const previousCodexHome = process.env.CODEX_HOME;
+  const previousAdopt = process.env.CODEX_LINUX_ADOPT_CANONICAL_APP_SERVER;
+  process.env.CODEX_HOME = codexHome;
+  process.env.CODEX_LINUX_ADOPT_CANONICAL_APP_SERVER = "1";
+  let spawnCount = 0;
+  const { Transport } = loadInjectedTransport({
+    spawnImpl() {
+      spawnCount += 1;
+      return fakeChild();
+    },
+  });
+  const transport = new Transport(socketPath);
+  try {
+    await transport.ensureAuthority();
+    assert.equal(transport.adoptedAuthority, true);
+    assert.equal(spawnCount, 0);
+    assert.equal(fs.existsSync(`${socketPath}.lock`), false);
+    transport.dispose();
+    assert.equal(fs.lstatSync(socketPath).isSocket(), true);
+  } finally {
+    if (previousCodexHome == null) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = previousCodexHome;
+    if (previousAdopt == null) delete process.env.CODEX_LINUX_ADOPT_CANONICAL_APP_SERVER;
+    else process.env.CODEX_LINUX_ADOPT_CANONICAL_APP_SERVER = previousAdopt;
+    await closeServer(server);
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("adopted transport falls back privately when the canonical authority disappears", async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "shared-app-server-adopt-fallback-"));
+  const codexHome = path.join(tempDir, "codex-home");
+  const controlDir = path.join(codexHome, "app-server-control");
+  const canonicalSocket = path.join(controlDir, "app-server-control.sock");
+  const privateSocket = path.join(tempDir, "private", "app-server.sock");
+  fs.mkdirSync(controlDir, { recursive: true, mode: 0o700 });
+  const server = await listenUnix(canonicalSocket);
+  fs.chmodSync(canonicalSocket, 0o600);
+  const previousAdopt = process.env.CODEX_LINUX_ADOPT_CANONICAL_APP_SERVER;
+  const previousCodexHome = process.env.CODEX_HOME;
+  const previousCli = process.env.CODEX_CLI_PATH;
+  const previousFallback = process.env.CODEX_LINUX_APP_SERVER_PRIVATE_FALLBACK_SOCKET;
+  process.env.CODEX_HOME = codexHome;
+  process.env.CODEX_CLI_PATH = "/fake/codex";
+  process.env.CODEX_LINUX_ADOPT_CANONICAL_APP_SERVER = "1";
+  process.env.CODEX_LINUX_APP_SERVER_PRIVATE_FALLBACK_SOCKET = privateSocket;
+  let observedArgs;
+  const { Transport } = loadInjectedTransport({
+    spawnImpl(_command, args) {
+      observedArgs = args;
+      throw new Error("stop after fallback argument capture");
+    },
+  });
+  const transport = new Transport(canonicalSocket);
+  try {
+    await transport.ensureAuthority();
+    assert.equal(transport.adoptedAuthority, true);
+    await closeServer(server);
+    await assert.rejects(transport.ensureAuthority(), /stop after fallback argument capture/);
+    assert.equal(transport.adoptedAuthority, false);
+    assert.equal(transport.socketPath, privateSocket);
+    assert.deepEqual(Array.from(observedArgs), [
+      "app-server",
+      "--listen",
+      `unix://${privateSocket}`,
+    ]);
+  } finally {
+    if (previousAdopt == null) delete process.env.CODEX_LINUX_ADOPT_CANONICAL_APP_SERVER;
+    else process.env.CODEX_LINUX_ADOPT_CANONICAL_APP_SERVER = previousAdopt;
+    if (previousCodexHome == null) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = previousCodexHome;
+    if (previousCli == null) delete process.env.CODEX_CLI_PATH;
+    else process.env.CODEX_CLI_PATH = previousCli;
+    if (previousFallback == null) delete process.env.CODEX_LINUX_APP_SERVER_PRIVATE_FALLBACK_SOCKET;
+    else process.env.CODEX_LINUX_APP_SERVER_PRIVATE_FALLBACK_SOCKET = previousFallback;
+    await closeServer(server);
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
 });
@@ -733,9 +976,9 @@ test("socket hook preserves an explicit real Codex CLI path", () => {
   try {
     const result = spawnSync(socketEnvHook, [], { encoding: "utf8", env });
     assert.equal(result.status, 0, result.stderr);
-    assert.equal(
-      result.stdout.trim().split("\n").at(-1),
-      `env CODEX_CLI_PATH=${explicitCli}`,
+    assert.ok(result.stdout.trim().split("\n").includes(`env CODEX_CLI_PATH=${explicitCli}`));
+    assert.ok(
+      result.stdout.trim().split("\n").includes(`env CODEX_INSTALL_DIR=${tempDir}`),
     );
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });

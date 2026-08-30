@@ -16,6 +16,8 @@ unix://PATH`. Desktop connects through the CLI's stock `app-server proxy --sock
 PATH` byte tunnel and its existing WebSocket transport. Other local clients use
 the same stock proxy command to attach to the Unix socket and receive the normal
 WebSocket `/rpc` byte stream. Closing Desktop stops the authority.
+When Desktop adopts the canonical authority instead, closing Desktop stops only
+its proxy connection and leaves the adopted authority running.
 
 When the packaged Remote Mobile Control feature has established its exact
 Desktop-owner marker, the same private authority starts as `app-server
@@ -35,12 +37,16 @@ An explicit `CODEX_CLI_PATH` remains supported and is preserved by the feature
 hook.
 
 The default socket is scoped by Linux app id under `XDG_RUNTIME_DIR`, preventing
-side-by-side Desktop instances from sharing an authority accidentally. Desktop
-does not automatically adopt the separate canonical Codex control-plane socket
-under `CODEX_HOME`. Override the default with
-`CODEX_LINUX_APP_SERVER_BRIDGE_SOCKET` when a stable path is required, but
-reserve that path for this Desktop authority; it must not already be owned by
-another process.
+side-by-side Desktop instances from sharing an authority accidentally. When the
+Remote Mobile Control owner marker is valid, Desktop adopts a live canonical
+Codex control-plane socket under `CODEX_HOME` only when the socket is a
+non-symlink `0600` endpoint owned by the current user inside a non-symlink
+current-user `0700` directory. An adopted authority is never stopped, unlinked,
+or passed to Desktop's orphan cleanup. If no secure canonical authority exists,
+Desktop falls back to its private instance socket. Override the default with
+`CODEX_LINUX_APP_SERVER_BRIDGE_SOCKET` when a stable private path is required,
+but reserve that path for this Desktop authority; it must not already be owned
+by another process.
 The Codex app-server creates the socket with user-only permissions. A shell
 wrapper may route bare `codex app-server proxy` SSH sessions to this path.
 Keep the socket in a directory accessible only to the owning user. It is a local
@@ -70,10 +76,13 @@ and before a later cold start.
 
 ## SSH setup
 
-Use a stable socket path when the Desktop instance will be reached over SSH:
+Canonical adoption is automatic when its marker and security checks pass; do
+not point `CODEX_LINUX_APP_SERVER_BRIDGE_SOCKET` at the canonical control socket.
+When no canonical authority is available, use a distinct stable private socket
+path for a Desktop-owned fallback reached over SSH:
 
 ```bash
-export CODEX_LINUX_APP_SERVER_BRIDGE_SOCKET="$HOME/.codex/app-server-control/app-server-control.sock"
+export CODEX_LINUX_APP_SERVER_BRIDGE_SOCKET="$XDG_RUNTIME_DIR/codex-desktop/app-server-bridge/app-server.sock"
 codex-desktop
 ```
 
@@ -85,7 +94,7 @@ Then place a small `codex` wrapper earlier in the SSH user's `PATH`. Set
 set -eu
 
 real_codex="/absolute/path/to/real/codex"
-desktop_socket="$HOME/.codex/app-server-control/app-server-control.sock"
+desktop_socket="${XDG_RUNTIME_DIR:?}/codex-desktop/app-server-bridge/app-server.sock"
 
 if [ "$#" -eq 2 ] && [ "$1" = "app-server" ] && [ "$2" = "proxy" ]; then
     exec "$real_codex" app-server proxy --sock "$desktop_socket"
