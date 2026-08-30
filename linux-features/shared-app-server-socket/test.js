@@ -562,7 +562,10 @@ test("patch selects the bridge only for the local host and is idempotent", () =>
     /CodexLinuxSharedAppServerSocketTransport\(process\.env\.CODEX_LINUX_APP_SERVER_BRIDGE_SOCKET,\(\)=>Ope\(e\)\)/,
   );
   assert.match(patched, /app-server`,\s*`proxy`,\s*`--sock`/);
-  assert.match(patched, /flatMap\(e=>\[`-c`,e\]\).*app-server`,\s*`--listen`,\s*`unix:\/\//);
+  assert.match(patched, /flatMap\(e=>\[`-c`,e\]\).*this\.authorityArgs\(\)/);
+  assert.match(patched, /authorityArgs\(\)\{let e=\[`app-server`\]/);
+  assert.match(patched, /e\.push\(`--remote-control`\)/);
+  assert.match(patched, /e\.push\(`--listen`,`unix:\/\/\$\{this\.socketPath\}`\)/);
   assert.doesNotMatch(patched, /mcp_servers\.codex_app/);
   assert.match(patched, /await this\.ensureAuthority\(\)/);
   assert.match(patched, /e\.once\(`close`,t\);try\{e\.kill\(\)/);
@@ -1203,6 +1206,93 @@ for (const [name, overrides, expectedArgs] of [
       );
       assert.equal(fs.existsSync(`${socketPath}.lock`), false);
     } finally {
+      if (originalCli == null) delete process.env.CODEX_CLI_PATH;
+      else process.env.CODEX_CLI_PATH = originalCli;
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+}
+
+test("injected transport enables remote control for a marked Desktop authority", async () => {
+  const tempDir = makeSocketTempDir("shared-app-server-remote-control-");
+  const socketPath = path.join(tempDir, "app-server.sock");
+  const appDir = path.join(tempDir, "app");
+  const markerDir = path.join(appDir, ".codex-linux");
+  fs.mkdirSync(markerDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(markerDir, "desktop-app-server-remote-control-enabled"),
+    "version=1\nowner=desktop\n",
+  );
+  let observedArgs;
+  const { Transport } = loadInjectedTransport({
+    spawnImpl(_command, args) {
+      observedArgs = args;
+      throw new Error("stop after argument capture");
+    },
+  });
+  const transport = new Transport(socketPath);
+  const originalAppDir = process.env.CODEX_LINUX_APP_DIR;
+  const originalCli = process.env.CODEX_CLI_PATH;
+  process.env.CODEX_LINUX_APP_DIR = appDir;
+  process.env.CODEX_CLI_PATH = "/fake/codex";
+  try {
+    await assert.rejects(transport.ensureAuthority(), /stop after argument capture/);
+    assert.deepEqual(Array.from(observedArgs), [
+      "app-server",
+      "--remote-control",
+      "--listen",
+      `unix://${socketPath}`,
+    ]);
+  } finally {
+    if (originalAppDir == null) delete process.env.CODEX_LINUX_APP_DIR;
+    else process.env.CODEX_LINUX_APP_DIR = originalAppDir;
+    if (originalCli == null) delete process.env.CODEX_CLI_PATH;
+    else process.env.CODEX_CLI_PATH = originalCli;
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+for (const [name, prepareMarker] of [
+  ["malformed marker", (marker) => fs.writeFileSync(marker, "owner=desktop\n")],
+  [
+    "symlinked marker",
+    (marker) => {
+      const target = `${marker}.target`;
+      fs.writeFileSync(target, "version=1\nowner=desktop\n");
+      fs.symlinkSync(target, marker);
+    },
+  ],
+]) {
+  test(`injected transport rejects a ${name} as Remote Control authority proof`, async () => {
+    const tempDir = makeSocketTempDir("shared-app-server-remote-control-invalid-");
+    const socketPath = path.join(tempDir, "app-server.sock");
+    const appDir = path.join(tempDir, "app");
+    const markerDir = path.join(appDir, ".codex-linux");
+    const marker = path.join(markerDir, "desktop-app-server-remote-control-enabled");
+    fs.mkdirSync(markerDir, { recursive: true });
+    prepareMarker(marker);
+    let observedArgs;
+    const { Transport } = loadInjectedTransport({
+      spawnImpl(_command, args) {
+        observedArgs = args;
+        throw new Error("stop after argument capture");
+      },
+    });
+    const transport = new Transport(socketPath);
+    const originalAppDir = process.env.CODEX_LINUX_APP_DIR;
+    const originalCli = process.env.CODEX_CLI_PATH;
+    process.env.CODEX_LINUX_APP_DIR = appDir;
+    process.env.CODEX_CLI_PATH = "/fake/codex";
+    try {
+      await assert.rejects(transport.ensureAuthority(), /stop after argument capture/);
+      assert.deepEqual(Array.from(observedArgs), [
+        "app-server",
+        "--listen",
+        `unix://${socketPath}`,
+      ]);
+    } finally {
+      if (originalAppDir == null) delete process.env.CODEX_LINUX_APP_DIR;
+      else process.env.CODEX_LINUX_APP_DIR = originalAppDir;
       if (originalCli == null) delete process.env.CODEX_CLI_PATH;
       else process.env.CODEX_CLI_PATH = originalCli;
       fs.rmSync(tempDir, { recursive: true, force: true });

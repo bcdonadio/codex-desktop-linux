@@ -17,6 +17,11 @@ PATH` byte tunnel and its existing WebSocket transport. Other local clients use
 the same stock proxy command to attach to the Unix socket and receive the normal
 WebSocket `/rpc` byte stream. Closing Desktop stops the authority.
 
+When the packaged Remote Mobile Control feature has established its exact
+Desktop-owner marker, the same private authority starts as `app-server
+--remote-control --listen unix://PATH`. Missing, malformed, or symlinked markers
+leave the shared authority in its ordinary non-Remote-Control mode.
+
 The feature preserves the configuration overrides supplied by the official
 local transport. It forwards each opaque override as an ordered `-c` argument
 before the `app-server` subcommand when it starts the shared authority. It does
