@@ -17,6 +17,8 @@ const LINUX_COMPUTER_USE_CURSOR_BRIDGE_MARKER =
   "codexLinuxRegisterComputerUseCursorHandler";
 const LINUX_CODEX_APP_THREAD_CONFIG_MARKER =
   "codexLinuxCodexAppThreadConfig";
+const LINUX_CODEX_APP_THREAD_TOOLS_MARKER =
+  "codexLinuxCodexAppThreadTools";
 
 function findMatchingParenthesis(source, openIndex) {
   let depth = 0;
@@ -129,6 +131,35 @@ function applyLinuxCodexAppThreadConfigPatch(currentSource) {
       `async buildMcpCodexConfig(${cwdVar}){${connectionInit}let ${LINUX_CODEX_APP_THREAD_CONFIG_MARKER}=null;${prefix}process.platform===\`linux\`&&await ${launcherFunction}({hostConfig:${connectionVar}.hostConfig,resourcesPath:process.resourcesPath,${LINUX_CODEX_APP_THREAD_CONFIG_MARKER}:e=>{${LINUX_CODEX_APP_THREAD_CONFIG_MARKER}=e}});return{...${browserConfigVar},...${artifactConfigVar},...((process.platform===\`linux\`&&${LINUX_CODEX_APP_THREAD_CONFIG_MARKER}!=null)?{\"mcp_servers.codex_app\":${LINUX_CODEX_APP_THREAD_CONFIG_MARKER}}:{})}}`,
   );
   return patchedSource;
+}
+
+function applyLinuxCodexAppThreadToolsPatch(currentSource) {
+  if (currentSource.includes(LINUX_CODEX_APP_THREAD_TOOLS_MARKER)) {
+    return currentSource;
+  }
+
+  const needle = "readDynamicTools:e=>c.request(e),traceRequest(e){";
+  const matchIndex = currentSource.indexOf(needle);
+  if (matchIndex === -1 || currentSource.indexOf(needle, matchIndex + needle.length) !== -1) {
+    console.warn(
+      "WARN: Could not uniquely identify local thread dynamic-tool request construction - skipping Linux thread tools patch",
+    );
+    return currentSource;
+  }
+
+  const context = currentSource.slice(Math.max(0, matchIndex - 600), matchIndex);
+  if (!context.includes("usesDesktopMcp:SM(o)")) {
+    console.warn(
+      "WARN: Local thread dynamic-tool request lacks the expected Desktop MCP guard - skipping Linux thread tools patch",
+    );
+    return currentSource;
+  }
+
+  const replacement =
+    `readDynamicTools:e=>c.request(SM(o)?{...e,featureOverrides:{...e.featureOverrides,thread_tools:!0}}:e/*${LINUX_CODEX_APP_THREAD_TOOLS_MARKER}*/),traceRequest(e){`;
+  return currentSource.slice(0, matchIndex) +
+    replacement +
+    currentSource.slice(matchIndex + needle.length);
 }
 
 function linuxComputerUseCursorBridgeRuntimeSource() {
@@ -922,6 +953,7 @@ module.exports = {
   COMPUTER_USE_UI_SETTINGS_KEY,
   applyLinuxComputerUseAvatarCursorBridgePatch,
   applyLinuxCodexAppThreadConfigPatch,
+  applyLinuxCodexAppThreadToolsPatch,
   applyLinuxComputerUseFeaturePatch,
   applyLinuxComputerUseHostPlatformPatch,
   applyLinuxNativeDesktopAppsHandlerPatch,
