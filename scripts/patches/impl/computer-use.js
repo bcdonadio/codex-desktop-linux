@@ -100,7 +100,7 @@ function applyLinuxCodexAppThreadConfigPatch(currentSource) {
   }
 
   const buildConfigPattern =
-    /async buildMcpCodexConfig\(([A-Za-z_$][\w$]*)\)\{(let ([A-Za-z_$][\w$]*)=this\.[^;]{1,240}\.getConnection\([^;]+\);)([\s\S]{0,2200}?)return\{\.\.\.([A-Za-z_$][\w$]*),\.\.\.([A-Za-z_$][\w$]*)\}\}/gu;
+    /async buildMcpCodexConfig\(([A-Za-z_$][\w$]*)\)\{(let ([A-Za-z_$][\w$]*)=this\.[^;]{1,240}\.getConnection\([^;]+\);)([\s\S]{0,2600}?)return\{((?:\.\.\.[A-Za-z_$][\w$]*,?){2,4})\}\}/gu;
   const buildMatches = [...currentSource.matchAll(buildConfigPattern)];
   if (buildMatches.length !== 1) {
     console.warn(
@@ -127,8 +127,8 @@ function applyLinuxCodexAppThreadConfigPatch(currentSource) {
 
   patchedSource = patchedSource.replace(
     buildConfigPattern,
-    (_match, cwdVar, connectionInit, connectionVar, prefix, browserConfigVar, artifactConfigVar) =>
-      `async buildMcpCodexConfig(${cwdVar}){${connectionInit}let ${LINUX_CODEX_APP_THREAD_CONFIG_MARKER}=null;${prefix}process.platform===\`linux\`&&await ${launcherFunction}({hostConfig:${connectionVar}.hostConfig,resourcesPath:process.resourcesPath,${LINUX_CODEX_APP_THREAD_CONFIG_MARKER}:e=>{${LINUX_CODEX_APP_THREAD_CONFIG_MARKER}=e}});return{...${browserConfigVar},...${artifactConfigVar},...((process.platform===\`linux\`&&${LINUX_CODEX_APP_THREAD_CONFIG_MARKER}!=null)?{\"mcp_servers.codex_app\":${LINUX_CODEX_APP_THREAD_CONFIG_MARKER}}:{})}}`,
+    (_match, cwdVar, connectionInit, connectionVar, prefix, configSpreads) =>
+      `async buildMcpCodexConfig(${cwdVar}){${connectionInit}let ${LINUX_CODEX_APP_THREAD_CONFIG_MARKER}=null;${prefix}process.platform===\`linux\`&&await ${launcherFunction}({hostConfig:${connectionVar}.hostConfig,resourcesPath:process.resourcesPath,${LINUX_CODEX_APP_THREAD_CONFIG_MARKER}:e=>{${LINUX_CODEX_APP_THREAD_CONFIG_MARKER}=e}});return{${configSpreads},...((process.platform===\`linux\`&&${LINUX_CODEX_APP_THREAD_CONFIG_MARKER}!=null)?{\"mcp_servers.codex_app\":${LINUX_CODEX_APP_THREAD_CONFIG_MARKER}}:{})}}`,
   );
   return patchedSource;
 }
@@ -148,15 +148,19 @@ function applyLinuxCodexAppThreadToolsPatch(currentSource) {
   }
 
   const context = currentSource.slice(Math.max(0, matchIndex - 600), matchIndex);
-  if (!context.includes("usesDesktopMcp:SM(o)")) {
+  const desktopMcpMatches = [...context.matchAll(
+    /usesDesktopMcp:([A-Za-z_$][\w$]*)\(([A-Za-z_$][\w$]*)\)/g,
+  )];
+  if (desktopMcpMatches.length !== 1) {
     console.warn(
       "WARN: Local thread dynamic-tool request lacks the expected Desktop MCP guard - skipping Linux thread tools patch",
     );
     return currentSource;
   }
+  const [, desktopMcpPredicate, hostIdVar] = desktopMcpMatches[0];
 
   const replacement =
-    `readDynamicTools:e=>c.request(SM(o)?{...e,featureOverrides:{...e.featureOverrides,thread_tools:!0}}:e/*${LINUX_CODEX_APP_THREAD_TOOLS_MARKER}*/),traceRequest(e){`;
+    `readDynamicTools:e=>c.request(${desktopMcpPredicate}(${hostIdVar})?{...e,featureOverrides:{...e.featureOverrides,thread_tools:!0}}:e/*${LINUX_CODEX_APP_THREAD_TOOLS_MARKER}*/),traceRequest(e){`;
   return currentSource.slice(0, matchIndex) +
     replacement +
     currentSource.slice(matchIndex + needle.length);

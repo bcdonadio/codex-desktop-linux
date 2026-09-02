@@ -37,7 +37,7 @@ test("computer-use-linux is opt-in and owns the current Linux descriptors", () =
 test("Linux thread resume requests sibling tools only for local Desktop MCP", async () => {
   const source = [
     '"use strict";',
-    "function SM(e){return e===`local`}class Nkr{constructor(e){this.params=e}readInputs(){let{hostId:o,dynamicTools:c}=this.params;return{hasDesktopRuntime:!0,usesDesktopMcp:SM(o),readDynamicTools:e=>c.request(e),traceRequest(e){return e}}}}",
+    "function HE(e){return e===`local`}class Nkr{constructor(e){this.params=e}readInputs(){let{hostId:o,dynamicTools:c}=this.params;return{hasDesktopRuntime:!0,usesDesktopMcp:HE(o),readDynamicTools:e=>c.request(e),traceRequest(e){return e}}}}",
     'async function LBt({readDynamicTools,usesDesktopMcp,config}){let n=await readDynamicTools({featureOverrides:{apps:!0}});return usesDesktopMcp?{...config,"mcp_servers.codex_app.enabled_tools":n}:config}',
     "globalThis.seen=null;globalThis.make=async hostId=>{let inputs=new Nkr({hostId,dynamicTools:{request:async e=>{globalThis.seen=e;return e.featureOverrides?.thread_tools===!0?[`create_thread`,`list_threads`,`read_thread`,`wait_threads`,`send_message_to_thread`]:[]}}}).readInputs();return LBt({readDynamicTools:inputs.readDynamicTools,usesDesktopMcp:inputs.usesDesktopMcp,config:{}})};",
   ].join("");
@@ -69,7 +69,7 @@ test("Linux thread resume keeps the complete Codex app MCP transport with tool f
     '"use strict";',
     "var Ope={parse:e=>e},path={join:(...e)=>e.join(`/`)},KT=e=>JSON.stringify(e),browserConfig=async()=>({}),artifactConfig=async()=>({});",
     "async function Ape({hostConfig:e,resourcesPath:t=process.resourcesPath}){let r=process.env.CODEX_APP_TOOLS_PIPE_PATH;if(e.kind!==`local`)return[];let i=!1,a={path:`/plugins/codex-app-tools`},s=JSON.stringify({mcpServers:{codex_app:{command:`launch`,args:[`server.mjs`],env:{}}}}),{mcpServers:{codex_app:c}}=Ope.parse(JSON.parse(s)),l={...c.env,CODEX_APP_TOOLS_PIPE_PATH:r},u=`/node`;if(u!=null&&(l.CODEX_MCP_NODE_PATH=u),i){c.command=`/bin/sh`,c.args=[`-c`,`shim`],c.env_vars=[`WSL_INTEROP`],l.WSLENV=`WSL_INTEROP/w`}return[`mcp_servers.codex_app=${KT({...c,command:process.platform===`win32`?c.command:path.join(a.path,c.command),cwd:i?`/`:a.path,enabled:!0,omit_tools_from:[`deferred`,`code_mode`],env:l})}`]}",
-    "class Host{constructor(e){this.kind=e,this.registry={getConnection:()=>({hostConfig:{kind:this.kind}})}}async buildMcpCodexConfig(e){let t=this.registry.getConnection(`local`);let n=!1,r={},[i,a]=await Promise.all([browserConfig(),artifactConfig()]);return{...i,...a}}}",
+    "class Host{constructor(e){this.kind=e,this.registry={getConnection:()=>({hostConfig:{kind:this.kind}})}}async buildMcpCodexConfig(e){let t=this.registry.getConnection(`local`);let n=!1,r={},[i,a]=await Promise.all([browserConfig(),artifactConfig()]),o={artifactSession:!0};return{...i,...a,...o}}}",
     "globalThis.run=async e=>{let t=await new Host(e).buildMcpCodexConfig(`/workspace`);t[`mcp_servers.codex_app.enabled_tools`]=[`list_threads`];return t};",
   ].join("");
 
