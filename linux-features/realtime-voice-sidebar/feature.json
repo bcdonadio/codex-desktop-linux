@@ -1,0 +1,9 @@
+{
+  "id": "realtime-voice-sidebar",
+  "title": "Realtime Voice Sidebar",
+  "description": "Opt-in sidebar Voice entrypoint for accounts whose realtime voice service is available.",
+  "defaultEnabled": false,
+  "entrypoints": {
+    "patchDescriptors": "./patch.js"
+  }
+}

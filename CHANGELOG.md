@@ -35,6 +35,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   registration with a bounded modifier release watcher, while Wayland uses the
   XDG GlobalShortcuts and RemoteDesktop portals for press, release, and paste
   handling without direct input-device access or elevated permissions.
+- An opt-in `realtime-voice-sidebar` Linux feature exposes the upstream realtime
+  Voice sidebar entrypoint by overriding only Statsig gate `2919110489.enabled`;
+  it does not grant backend entitlement or change account rollout state.
 
 ### Changed
 

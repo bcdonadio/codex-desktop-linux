@@ -224,14 +224,16 @@ Nix 用户应从 profile、Home Manager 配置或 NixOS module 中删除该包�
 | `record-and-replay` | 将 Linux 操作演示录制为可复用 skill | [文档](linux-features/record-and-replay/README.md) |
 | `remote-control-ui` | 显示实验性 remote-control 设置 | [文档](linux-features/remote-control-ui/README.md) |
 | `remote-mobile-control` | 实验性 Linux remote-host / outbound-control flow | [文档](linux-features/remote-mobile-control/README.md) |
+| `realtime-voice-sidebar` | 在显式启用时显示上游 realtime Voice 侧栏入口 | [文档](linux-features/realtime-voice-sidebar/README.md) |
 | `shallow-repository-watches` | 避免临时 repo preview 在主线程递归遍历 | [文档](linux-features/shallow-repository-watches/README.md) |
 | `shared-app-server-socket` | 共享 protocol-transparent Unix app-server socket | [文档](linux-features/shared-app-server-socket/README.md) |
 | `thorium-chrome-plugin` | 为官方 Chrome integration 添加 Thorium | [文档](linux-features/thorium-chrome-plugin/README.md) |
 | `tray-usage` | 在 Linux 系统托盘菜单显示剩余用量 | [文档](linux-features/tray-usage/README.md) |
 | `ui-tweaks` | 可选 UI 与交互自定义 | [文档](linux-features/ui-tweaks/README.md) |
 
-ChatGPT account rollout 和 server-side 功能仍由 OpenAI 控制。重新构建本项目
-不会解锁账号功能。
+ChatGPT account rollout 和 server-side 功能仍由 OpenAI 控制。
+`realtime-voice-sidebar` 只是显式的 UI override；重新构建本项目不会授予
+backend entitlement，也不会解锁账号功能。
 
 ## 配置可选扩展
 
