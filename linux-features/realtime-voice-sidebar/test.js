@@ -21,14 +21,14 @@ const { applyRealtimeVoiceSidebarPatch, descriptors } = require("./patch.js");
 
 function footerFixture({ gate = "!1", capability = "e", callback = "t", gateAlias = "Qze" } = {}) {
   return [
-    `function renderFooter(${capability},${callback},n){let r=${gateAlias}(n,\`2919110489\`).get(\`enabled\`,${gate});return ${capability}&&${callback}!=null&&r?{label:\`sidebar.voice.label\`,ariaLabel:\`sidebar.voice.startAriaLabel\`}:null}`,
+    `function renderFooter(${capability},${callback},n){return ${capability}&&${callback}!=null&&${gateAlias}(n,\`2919110489\`).get(\`enabled\`,${gate})?{label:\`sidebar.voice.label\`,ariaLabel:\`sidebar.voice.startAriaLabel\`}:null}`,
     "function unrelatedStats(n){return Qze(n,`other-gate`).get(`enabled`,!1)}",
   ].join("");
 }
 
-function evaluateFooter(source, capability = true, callback = () => {}) {
+function evaluateFooter(source, capability = true, callback = () => {}, storedGateEnabled = false) {
   const footer = Function("Qze", `${source};return renderFooter;`)((_scope, id) => ({
-    get: (_name, fallback) => id === "2919110489" ? fallback : false,
+    get: (_name, fallback) => id === "2919110489" ? storedGateEnabled : fallback,
   }));
   return footer(capability, callback, {});
 }
@@ -95,8 +95,9 @@ test("false gate suppresses Voice and true gate exposes the Voice branch after p
   assert.equal(evaluateFooter(source), null);
   const patched = applyRealtimeVoiceSidebarPatch(source);
   assert.notEqual(patched, source);
-  assert.match(patched, /Qze\(n,`2919110489`\)\.get\(`enabled`,!0\/\*codexLinuxRealtimeVoiceSidebarGate\*\/\)/);
-  assert.deepEqual(evaluateFooter(patched), {
+  assert.doesNotMatch(patched, /Qze\(n,`2919110489`\)\.get\(`enabled`,/);
+  assert.match(patched, /&&!0\/\*codexLinuxRealtimeVoiceSidebarGate\*\/\?/);
+  assert.deepEqual(evaluateFooter(patched, true, () => {}, false), {
     label: "sidebar.voice.label",
     ariaLabel: "sidebar.voice.startAriaLabel",
   });

@@ -5,9 +5,9 @@ const { findMatchingBrace } = require("../../scripts/patches/lib/minified-js.js"
 const PATCH_MARKER = "codexLinuxRealtimeVoiceSidebarGate";
 const VOICE_START_LABEL = "sidebar.voice.startAriaLabel";
 const VOICE_LABEL = "sidebar.voice.label";
-const GATE_ID = "2919110489";
 const FUNCTION_PATTERN = /function\s+[A-Za-z_$][\w$]*\s*\([^)]*\)\s*\{/g;
-const GATE_PATTERN = /Qze\(([A-Za-z_$][\w$]*),`2919110489`\)\.get\(`enabled`,(!1|!0\/\*codexLinuxRealtimeVoiceSidebarGate\*\/)\)/g;
+const GATE_PATTERN = /Qze\(([A-Za-z_$][\w$]*),`2919110489`\)\.get\(`enabled`,!1\)/g;
+const FORCED_GATE_PATTERN = /!0\/\*codexLinuxRealtimeVoiceSidebarGate\*\//g;
 
 function warn(message) {
   console.warn(`WARN: ${message} - skipping realtime voice sidebar patch`);
@@ -29,29 +29,26 @@ function countExact(body, value) {
 
 function footerContracts(source) {
   const ranges = functionRanges(source);
-  const contracts = [];
-  for (const gate of source.matchAll(GATE_PATTERN)) {
-    const gateStart = gate.index;
-    const enclosing = ranges
-      .filter((range) => range.start <= gateStart && gateStart < range.end)
-      .sort((left, right) => (left.end - left.start) - (right.end - right.start))[0];
-    if (enclosing == null) continue;
-
+  const contractsByGate = new Map();
+  for (const enclosing of ranges) {
     const body = source.slice(enclosing.start, enclosing.end);
-    if (
-      countExact(body, VOICE_START_LABEL) !== 1 ||
-      countExact(body, VOICE_LABEL) !== 1 ||
-      (body.match(GATE_PATTERN) ?? []).length !== 1
-    ) {
-      continue;
+    if (countExact(body, VOICE_START_LABEL) !== 1 || countExact(body, VOICE_LABEL) !== 1) continue;
+
+    const gates = [...body.matchAll(GATE_PATTERN)];
+    const forced = [...body.matchAll(FORCED_GATE_PATTERN)];
+    if (gates.length === 1 && forced.length === 0) {
+      const gateStart = enclosing.start + gates[0].index;
+      contractsByGate.set(gateStart, {
+        gateStart,
+        gateLength: gates[0][0].length,
+        patched: false,
+      });
+    } else if (gates.length === 0 && forced.length === 1) {
+      const gateStart = enclosing.start + forced[0].index;
+      contractsByGate.set(gateStart, { gateStart, gateLength: forced[0][0].length, patched: true });
     }
-    contracts.push({
-      gateStart,
-      gateLength: gate[0].length,
-      patched: gate[1].startsWith("!0"),
-    });
   }
-  return contracts;
+  return [...contractsByGate.values()];
 }
 
 function applyRealtimeVoiceSidebarPatch(source) {
@@ -68,10 +65,7 @@ function applyRealtimeVoiceSidebarPatch(source) {
 
   const { gateStart, gateLength } = contracts[0];
   const gate = source.slice(gateStart, gateStart + gateLength);
-  const patchedGate = gate.replace(
-    ".get(`enabled`,!1)",
-    `.get(\`enabled\`,!0/*${PATCH_MARKER}*/)`,
-  );
+  const patchedGate = `!0/*${PATCH_MARKER}*/`;
   return source.slice(0, gateStart) + patchedGate + source.slice(gateStart + gateLength);
 }
 

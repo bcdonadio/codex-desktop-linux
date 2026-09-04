@@ -12,11 +12,12 @@ the application:
 ```
 
 The feature changes only the sidebar footer gate in the signed upstream
-`app-primary-*.js` webview asset. It changes Statsig gate `2919110489.enabled`
-from its default false literal to true while preserving the upstream realtime
-Voice capability predicate and non-null `codex` start callback. It does not
-grant backend entitlement, alter account rollout state, or start a metered
-session. The account must still be entitled and the service must be available.
+`app-primary-*.js` webview asset. It replaces the Statsig gate lookup for
+`2919110489.enabled` with a forced UI-side true boolean while preserving the
+upstream realtime Voice capability predicate and non-null `codex` start
+callback. It does not change persisted or global Statsig state, grant backend
+entitlement, alter account rollout state, or start a metered session. The
+account must still be entitled and the service must be available.
 
 The matcher is fail-closed. If the expected footer contract is missing,
 duplicated, partial, mixed, or has drifted, the asset remains byte-identical and

@@ -36,8 +36,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   XDG GlobalShortcuts and RemoteDesktop portals for press, release, and paste
   handling without direct input-device access or elevated permissions.
 - An opt-in `realtime-voice-sidebar` Linux feature exposes the upstream realtime
-  Voice sidebar entrypoint by overriding only Statsig gate `2919110489.enabled`;
-  it does not grant backend entitlement or change account rollout state.
+  Voice sidebar entrypoint by replacing only the sidebar Statsig lookup for
+  `2919110489.enabled` with a forced UI-side true boolean; it does not modify
+  persisted/global Statsig state, grant backend entitlement, or change account
+  rollout state.
 
 ### Changed
 
