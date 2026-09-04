@@ -21,15 +21,18 @@ const { applyRealtimeVoiceSidebarPatch, descriptors } = require("./patch.js");
 
 function footerFixture({ gate = "!1", capability = "e", callback = "t", gateAlias = "Qze" } = {}) {
   return [
-    `function renderFooter(${capability},${callback},n){return ${capability}&&${callback}!=null&&${gateAlias}(n,\`2919110489\`).get(\`enabled\`,${gate})?{label:\`sidebar.voice.label\`,ariaLabel:\`sidebar.voice.startAriaLabel\`}:null}`,
+    `function renderFooter(${capability},${callback},n){return ${capability}&&${callback}!=null&&${gateAlias}(n,\`2919110489\`).get(\`enabled\`,${gate})?(0,h4.jsx)({label:\`sidebar.voice.label\`,ariaLabel:\`sidebar.voice.startAriaLabel\`}):null}`,
     "function unrelatedStats(n){return Qze(n,`other-gate`).get(`enabled`,!1)}",
   ].join("");
 }
 
 function evaluateFooter(source, capability = true, callback = () => {}, storedGateEnabled = false) {
-  const footer = Function("Qze", `${source};return renderFooter;`)((_scope, id) => ({
-    get: (_name, fallback) => id === "2919110489" ? storedGateEnabled : fallback,
-  }));
+  const footer = Function("Qze", "h4", `${source};return renderFooter;`)(
+    (_scope, id) => ({
+      get: (_name, fallback) => id === "2919110489" ? storedGateEnabled : fallback,
+    }),
+    { jsx: (value) => value },
+  );
   return footer(capability, callback, {});
 }
 
@@ -120,11 +123,19 @@ test("patch is idempotent and preserves unrelated Statsig calls", () => {
 test("alias drift and decoy gate literals fail closed", () => {
   const aliasDrift = footerFixture({ gateAlias: "Qzf" });
   const decoy = `${footerFixture({ gateAlias: "Qzf" })}function decoy(n){return Qze(n,\`2919110489\`).get(\`enabled\`,!1)}`;
-  for (const source of [aliasDrift, decoy]) {
+  const decoyMarker = `${aliasDrift}const unrelatedMarker=\"codexLinuxRealtimeVoiceSidebarGate\";`;
+  for (const source of [aliasDrift, decoy, decoyMarker]) {
     const result = captureWarnings(() => applyRealtimeVoiceSidebarPatch(source));
     assert.equal(result.value, source);
     assert.ok(result.warnings.some((warning) => /realtime voice sidebar/i.test(warning)));
   }
+});
+
+test("nested gate without labels in the inner footer function fails closed", () => {
+  const source = "function renderFooter(e,t,n){function inner(n){return Qze(n,`2919110489`).get(`enabled`,!1)}return e&&t!=null&&inner(n)?(0,h4.jsx)({label:`sidebar.voice.label`,ariaLabel:`sidebar.voice.startAriaLabel`}):null}";
+  const result = captureWarnings(() => applyRealtimeVoiceSidebarPatch(source));
+  assert.equal(result.value, source);
+  assert.ok(result.warnings.some((warning) => /realtime voice sidebar/i.test(warning)));
 });
 
 test("missing, duplicate, changed, partial, and mixed contracts fail closed", () => {
@@ -149,6 +160,13 @@ test("already-patched contract is accepted only when it is the sole valid contra
   const mixed = `${patched}${footerFixture()}`;
   const result = captureWarnings(() => applyRealtimeVoiceSidebarPatch(mixed));
   assert.equal(result.value, mixed);
+  assert.ok(result.warnings.some((warning) => /realtime voice sidebar/i.test(warning)));
+});
+
+test("marker-only Voice-labelled decoy is malformed and fails closed", () => {
+  const decoy = "function renderFooter(e,t,n){return e&&t!=null&&!0/*codexLinuxRealtimeVoiceSidebarGate*/?{label:`sidebar.voice.label`,ariaLabel:`sidebar.voice.startAriaLabel`}:null}";
+  const result = captureWarnings(() => applyRealtimeVoiceSidebarPatch(decoy));
+  assert.equal(result.value, decoy);
   assert.ok(result.warnings.some((warning) => /realtime voice sidebar/i.test(warning)));
 });
 

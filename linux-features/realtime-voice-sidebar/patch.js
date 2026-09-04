@@ -27,6 +27,13 @@ function countExact(body, value) {
   return body.split(value).length - 1;
 }
 
+function isFooterPredicate(body, start, length) {
+  const before = body.slice(0, start);
+  const after = body.slice(start + length);
+  return /&&[A-Za-z_$][\w$]*!=null&&\s*$/u.test(before) &&
+    /^\?\(0,[A-Za-z_$][\w$]*\.jsx\)/u.test(after);
+}
+
 function footerContracts(source) {
   const ranges = functionRanges(source);
   const contractsByGate = new Map();
@@ -36,14 +43,22 @@ function footerContracts(source) {
 
     const gates = [...body.matchAll(GATE_PATTERN)];
     const forced = [...body.matchAll(FORCED_GATE_PATTERN)];
-    if (gates.length === 1 && forced.length === 0) {
+    if (
+      gates.length === 1 &&
+      forced.length === 0 &&
+      isFooterPredicate(body, gates[0].index, gates[0][0].length)
+    ) {
       const gateStart = enclosing.start + gates[0].index;
       contractsByGate.set(gateStart, {
         gateStart,
         gateLength: gates[0][0].length,
         patched: false,
       });
-    } else if (gates.length === 0 && forced.length === 1) {
+    } else if (
+      gates.length === 0 &&
+      forced.length === 1 &&
+      isFooterPredicate(body, forced[0].index, forced[0][0].length)
+    ) {
       const gateStart = enclosing.start + forced[0].index;
       contractsByGate.set(gateStart, { gateStart, gateLength: forced[0][0].length, patched: true });
     }
