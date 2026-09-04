@@ -138,6 +138,20 @@ test("nested gate without labels in the inner footer function fails closed", () 
   assert.ok(result.warnings.some((warning) => /realtime voice sidebar/i.test(warning)));
 });
 
+test("nested exact gate with outer Voice labels fails closed", () => {
+  const source = "function renderFooter(e,t,n){function inner(a,b,c){return a&&b!=null&&Qze(c,`2919110489`).get(`enabled`,!1)?(0,h4.jsx)({label:`inner`,ariaLabel:`inner`}):null}return e&&t!=null?(0,h4.jsx)({label:`sidebar.voice.label`,ariaLabel:`sidebar.voice.startAriaLabel`}):null}";
+  const result = captureWarnings(() => applyRealtimeVoiceSidebarPatch(source));
+  assert.equal(result.value, source);
+  assert.ok(result.warnings.some((warning) => /realtime voice sidebar/i.test(warning)));
+});
+
+test("nested exact forced marker with outer Voice labels fails closed", () => {
+  const source = "function renderFooter(e,t,n){function inner(a,b,c){return a&&b!=null&&!0/*codexLinuxRealtimeVoiceSidebarGate*/?(0,h4.jsx)({label:`inner`,ariaLabel:`inner`}):null}return e&&t!=null?(0,h4.jsx)({label:`sidebar.voice.label`,ariaLabel:`sidebar.voice.startAriaLabel`}):null}";
+  const result = captureWarnings(() => applyRealtimeVoiceSidebarPatch(source));
+  assert.equal(result.value, source);
+  assert.ok(result.warnings.some((warning) => /realtime voice sidebar/i.test(warning)));
+});
+
 test("missing, duplicate, changed, partial, and mixed contracts fail closed", () => {
   const complete = footerFixture();
   const cases = [

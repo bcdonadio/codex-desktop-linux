@@ -37,13 +37,32 @@ function isFooterPredicate(body, start, length) {
 function footerContracts(source) {
   const ranges = functionRanges(source);
   const contractsByGate = new Map();
-  for (const enclosing of ranges) {
+  const candidates = [
+    ...[...source.matchAll(GATE_PATTERN)].map((match) => ({
+      absoluteStart: match.index,
+      length: match[0].length,
+      patched: false,
+    })),
+    ...[...source.matchAll(FORCED_GATE_PATTERN)].map((match) => ({
+      absoluteStart: match.index,
+      length: match[0].length,
+      patched: true,
+    })),
+  ];
+
+  for (const candidate of candidates) {
+    const enclosing = ranges
+      .filter((range) => range.start <= candidate.absoluteStart && candidate.absoluteStart < range.end)
+      .sort((left, right) => (left.end - left.start) - (right.end - right.start))[0];
+    if (enclosing == null) continue;
+
     const body = source.slice(enclosing.start, enclosing.end);
     if (countExact(body, VOICE_START_LABEL) !== 1 || countExact(body, VOICE_LABEL) !== 1) continue;
 
     const gates = [...body.matchAll(GATE_PATTERN)];
     const forced = [...body.matchAll(FORCED_GATE_PATTERN)];
     if (
+      !candidate.patched &&
       gates.length === 1 &&
       forced.length === 0 &&
       isFooterPredicate(body, gates[0].index, gates[0][0].length)
@@ -55,6 +74,7 @@ function footerContracts(source) {
         patched: false,
       });
     } else if (
+      candidate.patched &&
       gates.length === 0 &&
       forced.length === 1 &&
       isFooterPredicate(body, forced[0].index, forced[0][0].length)
