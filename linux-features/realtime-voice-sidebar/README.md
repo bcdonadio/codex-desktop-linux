@@ -24,6 +24,11 @@ duplicated, partial, mixed, or has drifted, the asset remains byte-identical and
 the patch emits a warning. A contract already carrying the feature marker is
 idempotent.
 
+The gate helper's minified name may change between upstream builds. Matching
+uses the stable gate key and complete footer contract. The regression fixture
+`fixtures/footer-26.901.41600.js` comes from the signed amd64 package (SHA-256
+`15cf422a77e8f28a7553d3180b8c72784a994438a141784c82d72cde93efca77`).
+
 Run the feature tests with:
 
 ```bash

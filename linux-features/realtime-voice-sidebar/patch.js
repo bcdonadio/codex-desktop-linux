@@ -6,7 +6,9 @@ const PATCH_MARKER = "codexLinuxRealtimeVoiceSidebarGate";
 const VOICE_START_LABEL = "sidebar.voice.startAriaLabel";
 const VOICE_LABEL = "sidebar.voice.label";
 const FUNCTION_PATTERN = /function\s+[A-Za-z_$][\w$]*\s*\([^)]*\)\s*\{/g;
-const GATE_PATTERN = /Qze\(([A-Za-z_$][\w$]*),`2919110489`\)\.get\(`enabled`,!1\)/g;
+// Upstream renames the helper when minifying; the gate key and footer contract
+// identify the behavior across signed stable bundles.
+const GATE_PATTERN = /[A-Za-z_$][\w$]*\(([A-Za-z_$][\w$]*),`2919110489`\)\.get\(`enabled`,!1\)/g;
 const FORCED_GATE_PATTERN = /!0\/\*codexLinuxRealtimeVoiceSidebarGate\*\//g;
 
 function warn(message) {

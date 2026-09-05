@@ -120,9 +120,20 @@ test("patch is idempotent and preserves unrelated Statsig calls", () => {
   assert.equal((once.match(/codexLinuxRealtimeVoiceSidebarGate/g) ?? []).length, 1);
 });
 
-test("alias drift and decoy gate literals fail closed", () => {
-  const aliasDrift = footerFixture({ gateAlias: "Qzf" });
-  const decoy = `${footerFixture({ gateAlias: "Qzf" })}function decoy(n){return Qze(n,\`2919110489\`).get(\`enabled\`,!1)}`;
+test("current signed footer and renamed helpers preserve the semantic gate contract", () => {
+  const current = fs.readFileSync(path.join(__dirname, "fixtures/footer-26.901.41600.js"), "utf8");
+  for (const source of [current, footerFixture({ gateAlias: "Qzf" }), footerFixture({ gateAlias: "$gate" })]) {
+    const result = captureWarnings(() => applyRealtimeVoiceSidebarPatch(source));
+    assert.deepEqual(result.warnings, []);
+    assert.equal(result.value, source.replace(/[A-Za-z_$][\w$]*\([A-Za-z_$][\w$]*,`2919110489`\)\.get\(`enabled`,!1\)/, "!0/*codexLinuxRealtimeVoiceSidebarGate*/"));
+    assert.notEqual(result.value, source);
+    assert.equal(applyRealtimeVoiceSidebarPatch(result.value), result.value);
+  }
+});
+
+test("gate key drift and decoy gate literals fail closed", () => {
+  const aliasDrift = footerFixture({ gateAlias: "Qzf" }).replace("2919110489", "different-gate");
+  const decoy = `${aliasDrift}function decoy(n){return Qze(n,\`2919110489\`).get(\`enabled\`,!1)}`;
   const decoyMarker = `${aliasDrift}const unrelatedMarker=\"codexLinuxRealtimeVoiceSidebarGate\";`;
   for (const source of [aliasDrift, decoy, decoyMarker]) {
     const result = captureWarnings(() => applyRealtimeVoiceSidebarPatch(source));
@@ -159,7 +170,7 @@ test("missing, duplicate, changed, partial, and mixed contracts fail closed", ()
     complete.replace("Qze(n,`2919110489`).get(`enabled`,!1)", "Qze(n,`2919110489`).get(`enabled`,!0)"),
     `${complete}${complete}`,
     complete.replace("sidebar.voice.label", "sidebar.voice.title"),
-    `${footerFixture({ gateAlias: "Qzf" })}function another(e,t,n){let r=Qze(n,\`2919110489\`).get(\`enabled\`,!1);return e&&t!=null&&r?\`sidebar.voice.label\`:null}`,
+    `${footerFixture({ gateAlias: "Qzf" }).replace("sidebar.voice.label", "sidebar.voice.title")}function another(e,t,n){let r=Qze(n,\`2919110489\`).get(\`enabled\`,!1);return e&&t!=null&&r?\`sidebar.voice.label\`:null}`,
   ];
   for (const source of cases) {
     const result = captureWarnings(() => applyRealtimeVoiceSidebarPatch(source));
