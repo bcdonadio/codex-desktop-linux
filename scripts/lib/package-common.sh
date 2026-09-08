@@ -652,9 +652,22 @@ updater_build_output_binary() {
 ensure_updater_binary() {
     local cargo_cmd=""
     local built_binary=""
+    local deleted_suffix=" (deleted)"
+    local recovered_binary=""
 
     if ! package_with_updater_enabled; then
         return
+    fi
+
+    if [ ! -x "$UPDATER_BINARY_SOURCE" ]; then
+        case "$UPDATER_BINARY_SOURCE" in
+            *"$deleted_suffix")
+                recovered_binary="${UPDATER_BINARY_SOURCE%"$deleted_suffix"}"
+                if [ -x "$recovered_binary" ]; then
+                    UPDATER_BINARY_SOURCE="$recovered_binary"
+                fi
+                ;;
+        esac
     fi
 
     if [ -x "$UPDATER_BINARY_SOURCE" ] && ! updater_binary_is_stale "$UPDATER_BINARY_SOURCE"; then
@@ -977,11 +990,11 @@ stage_enabled_native_feature_artifacts() {
         case "$feature_id" in
             computer-use-linux)
                 stage_update_builder_native_artifact \
-                    "$APP_DIR/resources/plugins/openai-bundled/plugins/computer-use/bin/codex-computer-use-linux" \
+                    "$APP_DIR/resources/plugins/openai-bundled/plugins/unified-computer-use/bin/codex-computer-use-linux" \
                     "$update_builder_root/target/release/codex-computer-use-linux" \
                     "$feature_id backend"
                 stage_update_builder_native_artifact \
-                    "$APP_DIR/resources/plugins/openai-bundled/plugins/computer-use/bin/codex-computer-use-cosmic" \
+                    "$APP_DIR/resources/plugins/openai-bundled/plugins/unified-computer-use/bin/codex-computer-use-cosmic" \
                     "$update_builder_root/target/release/codex-computer-use-cosmic" \
                     "$feature_id COSMIC helper"
                 ;;
