@@ -490,6 +490,7 @@ const attachedCliSourcedTestPrelude = [
 
 function runAttachedCliSnapshot(fixture, options = {}) {
   const script = [
+    ...(options.nounset ? ["set -u"] : []),
     attachedCliSourcedTestPrelude,
     'attached_cli_snapshot "$2" "$3"',
   ].join("\n");
@@ -1227,13 +1228,13 @@ test("attached CLI verifier rejects record metadata", () => {
 });
 
 test("attached CLI verifier rejects stale authority identity", () => {
-  const runCase = ({ expected, mutate }) => {
+  const runCase = ({ expected, mutate, nounset = false }) => {
     const fixture = createAttachedCliFixture();
     try {
       mutate?.(fixture);
       const recordBefore = fs.readFileSync(fixture.recordPath);
       const lockBefore = fs.readFileSync(fixture.lockPath);
-      const result = runAttachedCliSnapshot(fixture);
+      const result = runAttachedCliSnapshot(fixture, { nounset });
       assert.equal(result.status, expected, result.stderr);
       assert.equal(result.stdout, "");
       assert.equal(result.stderr, "");
@@ -1261,6 +1262,20 @@ test("attached CLI verifier rejects stale authority identity", () => {
       writeAuthorityArguments(fixture, [
         fixture.codexPath,
         "app-server",
+        "--listen",
+        `unix://${fixture.socketPath}`,
+      ]);
+    },
+  });
+  runCase({
+    expected: 0,
+    mutate(fixture) {
+      writeAuthorityArguments(fixture, [
+        fixture.codexPath,
+        "-c",
+        "model=fixture",
+        "app-server",
+        "--remote-control",
         "--listen",
         `unix://${fixture.socketPath}`,
       ]);
@@ -1338,6 +1353,9 @@ test("attached CLI verifier rejects stale authority identity", () => {
   }
 
   for (const argumentsForAuthority of [
+    (f) => [f.codexPath],
+    (f) => [f.codexPath, "app-server"],
+    (f) => [f.codexPath, "app-server", "--remote-control"],
     (f) => ["wrong-codex", "app-server", "--listen", `unix://${f.socketPath}`],
     (f) => [f.codexPath, "-c", "model=fixture", "app-server", "--listen"],
     (f) => [f.codexPath, "app-server", "--listen", "unix:///wrong.sock"],
@@ -1351,6 +1369,7 @@ test("attached CLI verifier rejects stale authority identity", () => {
       mutate(fixture) {
         writeAuthorityArguments(fixture, argumentsForAuthority(fixture));
       },
+      nounset: true,
     });
   }
 
@@ -2247,8 +2266,10 @@ test("injected transport adopts but never stops a secure canonical authority", a
   fs.chmodSync(socketPath, 0o600);
   const previousCodexHome = process.env.CODEX_HOME;
   const previousAdopt = process.env.CODEX_LINUX_ADOPT_CANONICAL_APP_SERVER;
+  const previousRuntimeDir = process.env.XDG_RUNTIME_DIR;
   process.env.CODEX_HOME = codexHome;
   process.env.CODEX_LINUX_ADOPT_CANONICAL_APP_SERVER = "1";
+  process.env.XDG_RUNTIME_DIR = tempDir;
   let spawnCount = 0;
   const { Transport } = loadInjectedTransport({
     spawnImpl() {
@@ -2262,6 +2283,14 @@ test("injected transport adopts but never stops a secure canonical authority", a
     assert.equal(transport.adoptedAuthority, true);
     assert.equal(spawnCount, 0);
     assert.equal(fs.existsSync(`${socketPath}.lock`), false);
+    const recordDir = path.join(tempDir, "codex-desktop", "app-server-bridge");
+    assert.equal(fs.existsSync(path.join(recordDir, "attached-cli-v1")), false);
+    const attached = spawnSync("bash", ["-c",
+      'source "$1"; attached_cli_snapshot "$2" /proc',
+      "attached-cli-canonical-adoption-test", attachedCli, recordDir,
+    ], { encoding: "utf8" });
+    assert.equal(attached.status, 10, attached.stderr);
+    assert.equal(attached.stdout, "");
     transport.dispose();
     assert.equal(fs.lstatSync(socketPath).isSocket(), true);
   } finally {
@@ -2269,6 +2298,8 @@ test("injected transport adopts but never stops a secure canonical authority", a
     else process.env.CODEX_HOME = previousCodexHome;
     if (previousAdopt == null) delete process.env.CODEX_LINUX_ADOPT_CANONICAL_APP_SERVER;
     else process.env.CODEX_LINUX_ADOPT_CANONICAL_APP_SERVER = previousAdopt;
+    if (previousRuntimeDir == null) delete process.env.XDG_RUNTIME_DIR;
+    else process.env.XDG_RUNTIME_DIR = previousRuntimeDir;
     await closeServer(server);
     fs.rmSync(tempDir, { recursive: true, force: true });
   }

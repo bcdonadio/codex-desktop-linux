@@ -96,6 +96,12 @@ stock CLI without requiring Desktop; the same argument restrictions still apply.
 Other accepted commands fail closed if Desktop's authority is absent or unsafe.
 Attached mode does not start Desktop or recover an authority. If the feature is
 disabled, every leading `--cli` invocation fails before Desktop launches.
+When Desktop adopts the independently owned canonical Remote Control authority,
+attached mode remains unavailable because Desktop has no owner lock with which
+to publish an authenticated discovery record. Desktop does not fabricate one
+from socket liveness alone. If that canonical authority disappears and Desktop
+starts its private fallback, attached mode becomes available after the fallback
+publishes its own verified record.
 
 To remove attached mode, remove only `shared-app-server-socket` from the existing
 `enabled` array in `linux-features/features.json` and run `make install-native`

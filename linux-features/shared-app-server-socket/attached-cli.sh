@@ -166,10 +166,16 @@ attached_cli_read_authority_command() {
         ((index + 1 < ${#ATTACHED_CLI_ARGV[@]})) || return "$ATTACHED_CLI_MISMATCH"
         ((index += 2))
     done
-    ((index + 3 == ${#ATTACHED_CLI_ARGV[@]})) || return "$ATTACHED_CLI_MISMATCH"
-    [[ ${ATTACHED_CLI_ARGV[index]} == app-server &&
-        ${ATTACHED_CLI_ARGV[index + 1]} == --listen &&
-        ${ATTACHED_CLI_ARGV[index + 2]} == "unix://$socket" ]] ||
+    ((index < ${#ATTACHED_CLI_ARGV[@]})) || return "$ATTACHED_CLI_MISMATCH"
+    [[ ${ATTACHED_CLI_ARGV[index]} == app-server ]] || return "$ATTACHED_CLI_MISMATCH"
+    ((index += 1))
+    if ((index < ${#ATTACHED_CLI_ARGV[@]})) &&
+        [[ ${ATTACHED_CLI_ARGV[index]} == --remote-control ]]; then
+        ((index += 1))
+    fi
+    ((index + 2 == ${#ATTACHED_CLI_ARGV[@]})) || return "$ATTACHED_CLI_MISMATCH"
+    [[ ${ATTACHED_CLI_ARGV[index]} == --listen &&
+        ${ATTACHED_CLI_ARGV[index + 1]} == "unix://$socket" ]] ||
         return "$ATTACHED_CLI_MISMATCH"
     attached_cli_snapshot_append "$cmdline_metadata"
     for argument in "${ATTACHED_CLI_ARGV[@]}"; do
