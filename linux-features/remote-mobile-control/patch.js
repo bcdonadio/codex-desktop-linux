@@ -831,7 +831,7 @@ function applyLinuxRemoteMobileConversationHydrationPatch(source) {
       return matches.length === 1 ? matches[0] : null;
     };
     const handlerNeedle =
-      /function (?<handler>[A-Za-z_$][\w$]*)\((?<owner>[A-Za-z_$][\w$]*),(?<notification>[A-Za-z_$][\w$]*),(?<callback>[A-Za-z_$][\w$]*)\)\{let\{manager:(?<manager>[A-Za-z_$][\w$]*),notificationContext:(?<context>[A-Za-z_$][\w$]*)\}=\k<owner>;(?=if\(!\(\k<context>\.streamState\.shouldIgnoreThreadMutationAsFollower\(\k<notification>\.method,\k<notification>\.params,`notification`\)\|\|\k<context>\.resumeNotificationBuffer\.buffer\(\k<notification>,\k<callback>\)\|\|\k<context>\.threadStartedNotificationDeferral\.bufferNotification\(\k<notification>,\k<callback>\)\|\|\k<callback>\?\.\(\)\)\))/u;
+      /function (?<handler>[A-Za-z_$][\w$]*)\((?<owner>[A-Za-z_$][\w$]*),(?<method>[A-Za-z_$][\w$]*),(?<params>[A-Za-z_$][\w$]*),[A-Za-z_$][\w$]*,(?<callback>[A-Za-z_$][\w$]*)\)\{let (?<notification>[A-Za-z_$][\w$]*)=[A-Za-z_$][\w$]*\(\k<method>,\k<params>\),[\s\S]{0,300}?[A-Za-z_$][\w$]*=\{notification:\k<notification>,automationCapability:(?<capability>[A-Za-z_$][\w$]*)\},\{manager:(?<manager>[A-Za-z_$][\w$]*),notificationContext:(?<context>[A-Za-z_$][\w$]*)\}=\k<owner>;(?=[\s\S]{0,300}?\k<context>\.streamState\.shouldIgnoreThreadMutationAsFollower\(\k<notification>\.method,\k<notification>\.params,`notification`\))/u;
     const handlerMatch = singleMatch(patched, handlerNeedle);
     const normalizerNeedle =
       /case`turn\/started`:\{let\{threadId:([A-Za-z_$][\w$]*),turn:[A-Za-z_$][\w$]*\}=([A-Za-z_$][\w$]*)\.params,[A-Za-z_$][\w$]*=([A-Za-z_$][\w$]*)\(\1\),[A-Za-z_$][\w$]*=[A-Za-z_$][\w$]*\.threadStore\.conversations\.get\([A-Za-z_$][\w$]*\);/u;
@@ -842,22 +842,20 @@ function applyLinuxRemoteMobileConversationHydrationPatch(source) {
       /(?<condition>if\(!(?<context>[A-Za-z_$][\w$]*)\.threadStore\.conversations\.has\((?<conversation>[A-Za-z_$][\w$]*)\)\))\{(?<manager>[A-Za-z_$][\w$]*)\.logger\.error\(`Received item\/started for unknown conversation`,\{safe:\{conversationId:\k<conversation>\},sensitive:\{\}\}\);break\}/u,
       /(?<condition>if\((?<item>[A-Za-z_$][\w$]*)\.type===`commandExecution`&&(?<context>[A-Za-z_$][\w$]*)\.itemStreamState\.clearItemTerminalInputBuffer\((?<conversation>[A-Za-z_$][\w$]*),\k<item>\.id\),\k<context>\.threadStore\.conversations\.get\(\k<conversation>\)==null\))\{(?<manager>[A-Za-z_$][\w$]*)\.logger\.error\(`Received item\/completed for unknown conversation`,\{safe:\{conversationId:\k<conversation>\},sensitive:\{\}\}\);break\}/u,
     ];
-    const ownerPatterns = [
-      /function [A-Za-z_$][\w$]*\([^,]+,([A-Za-z_$][\w$]*),[^)]+\)\{let\{manager:([A-Za-z_$][\w$]*),notificationContext:([A-Za-z_$][\w$]*),automationTurns:[A-Za-z_$][\w$]*,createId:[A-Za-z_$][\w$]*\}=[A-Za-z_$][\w$]*;/u,
-      /function [A-Za-z_$][\w$]*\([^,]+,([A-Za-z_$][\w$]*)\)\{let\{manager:([A-Za-z_$][\w$]*),notificationContext:([A-Za-z_$][\w$]*),createId:[A-Za-z_$][\w$]*\}=[A-Za-z_$][\w$]*;/u,
-    ];
+    const ownerPattern =
+      /function [A-Za-z_$][\w$]*\([^,]+,([A-Za-z_$][\w$]*),([A-Za-z_$][\w$]*)(?:,[A-Za-z_$][\w$]*)?\)\{let\{manager:([A-Za-z_$][\w$]*),notificationContext:([A-Za-z_$][\w$]*),createId:[A-Za-z_$][\w$]*\}=[A-Za-z_$][\w$]*;/u;
     const unknownContracts = unknownNeedles.map((needle, index) => {
       const match = singleMatch(patched, needle);
       if (match == null) return null;
       const functionStart = patched.lastIndexOf("function ", match.index);
       const prefix = functionStart === -1 ? "" : patched.slice(functionStart, match.index);
-      const owner = prefix.match(ownerPatterns[index < 2 ? 0 : 1]);
+      const owner = prefix.match(ownerPattern);
       if (
         owner == null ||
-        (match.groups.manager != null && match.groups.manager !== owner[2]) ||
-        (match.groups.context != null && match.groups.context !== owner[3])
+        (match.groups.manager != null && match.groups.manager !== owner[3]) ||
+        (match.groups.context != null && match.groups.context !== owner[4])
       ) return null;
-      return { match, notification: owner[1], manager: owner[2], context: owner[3] };
+      return { match, notification: owner[1], capability: owner[2], manager: owner[3], context: owner[4] };
     });
 
     if (
@@ -872,17 +870,17 @@ function applyLinuxRemoteMobileConversationHydrationPatch(source) {
       } = handlerMatch.groups;
       const normalizerFn = normalizerMatch[3];
       const helpers =
-        `function codexLinuxRemoteMobileBufferPendingNotification(e,t,n){let r=t.params.threadId??t.params.thread?.id;if(typeof r!==\`string\`)return!1;let i=e.${REMOTE_MOBILE_PENDING_NOTIFICATIONS_MARKER}?.get(${normalizerFn}(r));return i==null?!1:(i.push([t,n]),!0)}` +
-        `function ${REMOTE_MOBILE_HYDRATION_MARKER}(e,t,n,r){let i=t.${REMOTE_MOBILE_PENDING_NOTIFICATIONS_MARKER};if(i==null)i=t.${REMOTE_MOBILE_PENDING_NOTIFICATIONS_MARKER}=new Map;let a=i.get(n);if(a!=null){a.push([r]);return}i.set(n,[[r]]);let o=r.params.threadId??r.params.thread?.id;Promise.resolve(t.threadStore.hydrateActiveThread(o)).then(()=>{let r=i.get(n)??[];i.delete(n);if(!t.threadStore.conversations.get(n)){e.logger.error(\`Failed to hydrate conversation for deferred remote notification\`,{safe:{conversationId:n},sensitive:{}});return}for(let[t,n]of r)e.onNotification(t.method,t.params,n)},r=>{i.delete(n),e.logger.error(\`Failed to hydrate conversation for deferred remote notification\`,{safe:{conversationId:n},sensitive:{error:r}})})}`;
+        `function codexLinuxRemoteMobileBufferPendingNotification(e,t,n,r){let i=t.params.threadId??t.params.thread?.id;if(typeof i!==\`string\`)return!1;let a=e.${REMOTE_MOBILE_PENDING_NOTIFICATIONS_MARKER}?.get(${normalizerFn}(i));return a==null?!1:(a.push([t,n,r]),!0)}` +
+        `function ${REMOTE_MOBILE_HYDRATION_MARKER}(e,t,n,r,i){let a=t.${REMOTE_MOBILE_PENDING_NOTIFICATIONS_MARKER};if(a==null)a=t.${REMOTE_MOBILE_PENDING_NOTIFICATIONS_MARKER}=new Map;let o=a.get(n);if(o!=null){o.push([r,i]);return}a.set(n,[[r,i]]);let s=r.params.threadId??r.params.thread?.id;Promise.resolve(t.threadStore.hydrateActiveThread(s)).then(()=>{let r=a.get(n)??[];a.delete(n);if(!t.threadStore.conversations.get(n)){e.logger.error(\`Failed to hydrate conversation for deferred remote notification\`,{safe:{conversationId:n},sensitive:{}});return}for(let[t,n,i]of r)e.onNotification(t.method,t.params,n,i)},r=>{a.delete(n),e.logger.error(\`Failed to hydrate conversation for deferred remote notification\`,{safe:{conversationId:n},sensitive:{error:r}})})}`;
 
       patched = `${helpers}${patched}`.replace(
         handlerNeedle,
-        (needle) => `${needle}if(codexLinuxRemoteMobileBufferPendingNotification(${notificationContextVar},${notificationVar},${handlerMatch.groups.callback}))return;`,
+        (needle) => `${needle}if(codexLinuxRemoteMobileBufferPendingNotification(${notificationContextVar},${notificationVar},${handlerMatch.groups.capability},${handlerMatch.groups.callback}))return;`,
       );
       for (const contract of unknownContracts) {
         patched = patched.replace(
           contract.match[0],
-          `${contract.match.groups.condition}{${REMOTE_MOBILE_HYDRATION_MARKER}(${contract.manager},${contract.context},${contract.match.groups.conversation},${contract.notification});return\`deferred\`}`,
+          `${contract.match.groups.condition}{${REMOTE_MOBILE_HYDRATION_MARKER}(${contract.manager},${contract.context},${contract.match.groups.conversation},${contract.notification},${contract.capability});return\`deferred\`}`,
         );
       }
     } else if (
@@ -1261,9 +1259,10 @@ function applyLinuxRemoteMobileReasoningSummaryPatch(source) {
     return source;
   }
   const currentCallerPattern = new RegExp(
-    `(?<prefix>${escapeRegExp(helperName)}\\((?<manager>[A-Za-z_$][\\w$]*),[\\s\\S]{0,100}?\\{)` +
-      `(?=canUseProjectlessWorkspace:!(?<classifier>[A-Za-z_$][\\w$]*)\\(\\k<manager>\\.getHostId\\(\\)\\)\\|\\|` +
-      `(?<conversation>[A-Za-z_$][\\w$]*)\\.mode===\`durable\`\\|\\|!1,[\\s\\S]{0,1000}?` +
+    `(?<prefix>${escapeRegExp(helperName)}\\((?<manager>[A-Za-z_$][\\w$]*),` +
+      `[A-Za-z_$][\\w$]*,[A-Za-z_$][\\w$]*,[A-Za-z_$][\\w$]*,[A-Za-z_$][\\w$]*,` +
+      `(?<conversation>[A-Za-z_$][\\w$]*),\\{)` +
+      `(?=canUseProjectlessWorkspace:!(?<classifier>[A-Za-z_$][\\w$]*)\\(\\k<manager>\\.getHostId\\(\\)\\),[\\s\\S]{0,1000}?` +
       `reasoningSummaryOverride:\\k<manager>\\.getDefaultFeatureOverride\\(\`concurrent_reasoning_summaries\`\\)===!0\\?\`detailed\`:null)`,
     "u",
   );
