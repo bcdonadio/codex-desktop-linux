@@ -2,9 +2,15 @@
 
 This opt-in feature replaces the server-provided **Default** model-picker slider
 for ChatGPT-authenticated chats with an ordered list of model and reasoning
-effort pairs. It does not change the manual model list, API-key or Copilot
-sessions, account entitlements, workspace policy, or upstream Ultra/XHigh
-gates.
+effort pairs. It does not change the manual model list, API-key, Copilot, or
+Aeon-managed sessions, account entitlements, workspace policy, or upstream
+Ultra/XHigh gates.
+
+For an existing chat, configured pairs are kept as the composer's optimistic
+selection after the upstream next-turn settings RPC completes. This avoids a
+race where a long conversation can briefly expose stale thread metadata and
+reset the picker. Selecting a model/effort pair outside this feature's list
+removes that local override and restores the normal upstream behavior.
 
 The stock Settings page controls which reasoning efforts are visible and
 whether Ultra may appear in the picker. It does not currently configure the
@@ -58,8 +64,9 @@ make install-native
 One available pair makes **Default** a fixed selection. Two or more available
 pairs display the slider. The feature never truncates the configured list.
 The configured list replaces the upstream **Default** slider in both local
-repository tasks and cloud/TPP chats; selecting a model explicitly still uses
-the normal upstream effort choices for that model.
+repository tasks and cloud/TPP chats. Those surfaces use separate upstream
+catalog and slider-config paths, and the feature patches both; selecting a
+model explicitly still uses the normal upstream effort choices for that model.
 
 ## Runtime fallback
 
@@ -75,6 +82,11 @@ policy and its Ultra/XHigh visibility gates:
 
 Selecting **Default** again and creating a new chat both use the resolved
 default pair. Manual model selection remains upstream-owned.
+
+For an unsent local draft, selecting a configured pair is kept in draft state
+instead of being persisted as the account's upstream default. This lets the
+new conversation start with configured combinations that the server accepts
+for a conversation but does not expose as persistable default presets.
 
 ## Updates
 

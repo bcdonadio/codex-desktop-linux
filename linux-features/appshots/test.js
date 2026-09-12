@@ -17,6 +17,7 @@ const {
   applyLinuxAppshotHotkeyPatch,
   applyLinuxAppshotMainProcessPatch,
   descriptors,
+  matchesLinuxAppshotAvailabilityContract,
 } = require("./patch.js");
 
 function applyPatchTwice(patchFn, source) {
@@ -39,7 +40,7 @@ function captureWarnings(callback) {
 }
 
 function appshotAvailabilityAtomBundleFixture() {
-  return "function Zmr(e,t){return e===`macOS`||e===`windows`&&t!=null&&mu.isInternal(t)};let appshot=Zmr(platform,flavor)";
+  return "async function q1o({scope:e,hostId:t,queryClient:n}){return(await n.ensureQueryData({queryKey:Adn({hostId:t}),queryFn:()=>Mdn(e,t)})).requirements?.allowAppshots!==!1}function J1o(e){return e===`macOS`||e===`windows`}";
 }
 
 function appshotMainProcessBundleFixture() {
@@ -76,10 +77,11 @@ for (const location of ["installed", "cache", "retired only"]) {
     fs.mkdirSync(path.join(plugin, ".codex-plugin"), { recursive: true });
     fs.mkdirSync(path.join(plugin, "scripts"));
     fs.writeFileSync(path.join(plugin, ".codex-plugin/plugin.json"), JSON.stringify({
-      name: "unified-computer-use", version: "26.901.41600",
+      name: "unified-computer-use", version: "26.908.31748", mcpServers: "./.mcp.json",
     }));
-    fs.writeFileSync(path.join(plugin, "scripts/launch.mjs"),
-      'const surfaces = new Set(["browser", "computer"]); const setupOptions = {browser: surfaces.has("browser"), computer: surfaces.has("computer")}; const env = {NODE_REPL_TRUSTED_SERVICES: JSON.stringify({sky:"@oai/sky/service"}),NODE_REPL_JS_BANNER: banner,};');
+    fs.writeFileSync(path.join(plugin, ".mcp.json"), JSON.stringify({
+      mcpServers: { cua_repl: { command: "node", args: [], enabled: false } },
+    }));
     const backend = path.join(workspace, "backend");
     fs.writeFileSync(backend, '#!/bin/sh\n[ "$1" = windows ] || exit 1\nprintf \'%s\\n\' \'{"backend":"staged-unified","windows":[]}\'\n', { mode: 0o755 });
     execFileSync("bash", [path.join(__dirname, "../computer-use-linux/stage.sh")], {
@@ -172,6 +174,8 @@ test("appshots availability descriptor matches the current bundle", () => {
   assert.ok(
     descriptor.pattern.test("app-initial-BTphDPeq.js"),
   );
+  assert.equal(descriptor.assetMatch(appshotAvailabilityAtomBundleFixture()), true);
+  assert.equal(descriptor.assetMatch("function unrelated(){return `windows`}"), false);
 });
 
 test("stages the Linux bare modifier monitor helper and Wayland portal hook", () => {
@@ -309,7 +313,8 @@ test("enables AppShots availability atom on Linux", () => {
     patched,
     /e===`linux`\/\*codexLinuxAppshotsPlatformAvailable\*\/\|\|e===`macOS`/,
   );
-  assert.match(patched, /e===`windows`&&t!=null&&mu\.isInternal\(t\)/);
+  assert.match(patched, /e===`windows`/);
+  assert.equal(matchesLinuxAppshotAvailabilityContract(patched), true);
 });
 
 test("rejects the obsolete raw renderer message sender shape", () => {
