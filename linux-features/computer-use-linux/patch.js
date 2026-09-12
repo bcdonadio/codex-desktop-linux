@@ -8,7 +8,6 @@ const {
   applyLinuxComputerUseFeaturePatch,
   applyLinuxComputerUseHostPlatformPatch,
   applyLinuxCodexAppThreadToolsPatch,
-  applyLinuxCodexAppThreadConfigPatch,
   applyLinuxNativeDesktopAppsHandlerPatch,
   matchesLinuxComputerUseHostPlatformContract,
 } = require("../../scripts/patches/impl/computer-use.js");
@@ -49,13 +48,6 @@ module.exports = [
     order: 20_130,
     ciPolicy: "optional",
     apply: applyLinuxNativeDesktopAppsHandlerPatch,
-  }),
-  mainBundlePatch({
-    id: "codex-app-thread-config",
-    phase: "main-bundle",
-    order: 20_135,
-    ciPolicy: "optional",
-    apply: applyLinuxCodexAppThreadConfigPatch,
   }),
   webviewAssetPatch({
     id: "codex-app-thread-tools",

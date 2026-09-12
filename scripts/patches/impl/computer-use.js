@@ -4,7 +4,6 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const {
-  findLastRegexMatch,
   findMatchingBrace,
   requireName,
 } = require("../lib/minified-js.js");
@@ -15,123 +14,8 @@ const COMPUTER_USE_CURSOR_HANDLER_MARKER =
   "setRemoteHostedPIPContentComputerUseCursorLocationHandler";
 const LINUX_COMPUTER_USE_CURSOR_BRIDGE_MARKER =
   "codexLinuxRegisterComputerUseCursorHandler";
-const LINUX_CODEX_APP_THREAD_CONFIG_MARKER =
-  "codexLinuxCodexAppThreadConfig";
 const LINUX_CODEX_APP_THREAD_TOOLS_MARKER =
   "codexLinuxCodexAppThreadTools";
-
-function findMatchingParenthesis(source, openIndex) {
-  let depth = 0;
-  let quote = null;
-  let escaped = false;
-
-  for (let index = openIndex; index < source.length; index += 1) {
-    const char = source[index];
-    if (quote != null) {
-      if (escaped) {
-        escaped = false;
-      } else if (char === "\\") {
-        escaped = true;
-      } else if (char === quote) {
-        quote = null;
-      }
-      continue;
-    }
-    if (char === "'" || char === '"' || char === "`") {
-      quote = char;
-    } else if (char === "(") {
-      depth += 1;
-    } else if (char === ")") {
-      depth -= 1;
-      if (depth === 0) {
-        return index;
-      }
-    }
-  }
-  return -1;
-}
-
-function applyLinuxCodexAppThreadConfigPatch(currentSource) {
-  if (currentSource.includes(LINUX_CODEX_APP_THREAD_CONFIG_MARKER)) {
-    return currentSource;
-  }
-
-  const launcherNeedle = "return[`mcp_servers.codex_app=${";
-  const launcherIndex = currentSource.indexOf(launcherNeedle);
-  if (launcherIndex === -1 || currentSource.indexOf(launcherNeedle, launcherIndex + 1) !== -1) {
-    console.warn(
-      "WARN: Could not uniquely identify the Codex app MCP launcher config - skipping Linux thread config patch",
-    );
-    return currentSource;
-  }
-  const launcherFunction = findLastRegexMatch(
-    currentSource.slice(0, launcherIndex),
-    /async function ([A-Za-z_$][\w$]*)\([^)]*\)\{/g,
-  )?.[1] ?? null;
-  if (launcherFunction == null) {
-    console.warn(
-      "WARN: Could not identify the Codex app MCP launcher config builder - skipping Linux thread config patch",
-    );
-    return currentSource;
-  }
-  const launcherSignaturePattern = new RegExp(
-    `async function ${launcherFunction}\\(\\{([^}]*)\\}\\)\\{`,
-    "u",
-  );
-  const launcherSignatureMatches = [...currentSource.matchAll(new RegExp(
-    launcherSignaturePattern.source,
-    "gu",
-  ))];
-  if (launcherSignatureMatches.length !== 1) {
-    console.warn(
-      "WARN: Could not uniquely identify the Codex app MCP launcher config signature - skipping Linux thread config patch",
-    );
-    return currentSource;
-  }
-  const serializerOpen = currentSource.indexOf("(", launcherIndex + launcherNeedle.length);
-  const serializerClose = serializerOpen === -1
-    ? -1
-    : findMatchingParenthesis(currentSource, serializerOpen);
-  if (serializerClose === -1) {
-    console.warn(
-      "WARN: Could not identify the Codex app MCP launcher config expression - skipping Linux thread config patch",
-    );
-    return currentSource;
-  }
-
-  const buildConfigPattern =
-    /async buildMcpCodexConfig\(([A-Za-z_$][\w$]*)\)\{(let ([A-Za-z_$][\w$]*)=this\.[^;]{1,240}\.getConnection\([^;]+\);)([\s\S]{0,2600}?)return\{((?:\.\.\.(?:[A-Za-z_$][\w$]*|await [A-Za-z_$][\w$]*\(\{[^{}]{1,500}\}\)),?){2,5})\}\}/gu;
-  const buildMatches = [...currentSource.matchAll(buildConfigPattern)];
-  if (buildMatches.length !== 1) {
-    console.warn(
-      "WARN: Could not uniquely identify local thread MCP config construction - skipping Linux thread config patch",
-    );
-    return currentSource;
-  }
-
-  const transportExpression = currentSource.slice(serializerOpen + 1, serializerClose);
-  let patchedSource = currentSource.replace(
-    launcherSignaturePattern,
-    `async function ${launcherFunction}({$1,${LINUX_CODEX_APP_THREAD_CONFIG_MARKER}}){`,
-  );
-  const shiftedLauncherIndex = patchedSource.indexOf(launcherNeedle);
-  const shiftedSerializerOpen = patchedSource.indexOf(
-    "(",
-    shiftedLauncherIndex + launcherNeedle.length,
-  );
-  const shiftedSerializerClose = findMatchingParenthesis(patchedSource, shiftedSerializerOpen);
-  patchedSource =
-    patchedSource.slice(0, shiftedSerializerOpen + 1) +
-    `(e=>{${LINUX_CODEX_APP_THREAD_CONFIG_MARKER}?.(e);return e})(${transportExpression})` +
-    patchedSource.slice(shiftedSerializerClose);
-
-  patchedSource = patchedSource.replace(
-    buildConfigPattern,
-    (_match, cwdVar, connectionInit, connectionVar, prefix, configSpreads) =>
-      `async buildMcpCodexConfig(${cwdVar}){${connectionInit}let ${LINUX_CODEX_APP_THREAD_CONFIG_MARKER}=null;${prefix}process.platform===\`linux\`&&await ${launcherFunction}({hostConfig:${connectionVar}.hostConfig,resourcesPath:process.resourcesPath,${LINUX_CODEX_APP_THREAD_CONFIG_MARKER}:e=>{${LINUX_CODEX_APP_THREAD_CONFIG_MARKER}=e}});return{${configSpreads},...((process.platform===\`linux\`&&${LINUX_CODEX_APP_THREAD_CONFIG_MARKER}!=null)?{\"mcp_servers.codex_app\":${LINUX_CODEX_APP_THREAD_CONFIG_MARKER}}:{})}}`,
-  );
-  return patchedSource;
-}
 
 function applyLinuxCodexAppThreadToolsPatch(currentSource) {
   if (currentSource.includes(LINUX_CODEX_APP_THREAD_TOOLS_MARKER)) {
@@ -601,7 +485,6 @@ module.exports = {
   COMPUTER_USE_UI_ENV_VAR,
   COMPUTER_USE_UI_SETTINGS_KEY,
   applyLinuxComputerUseAvatarCursorBridgePatch,
-  applyLinuxCodexAppThreadConfigPatch,
   applyLinuxCodexAppThreadToolsPatch,
   applyLinuxComputerUseFeaturePatch,
   applyLinuxComputerUseHostPlatformPatch,

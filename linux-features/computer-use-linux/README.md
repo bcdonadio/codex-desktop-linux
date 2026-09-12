@@ -1,14 +1,14 @@
 # Linux Computer Use
 
 Disabled-by-default Linux Computer Use integration. It owns the Linux
-ASAR descriptors, including the local thread-resume MCP transport compatibility
-patch and local thread-tool capability continuity patch, and the native MCP
+ASAR descriptors, including the local thread-tool capability continuity patch,
+and the native MCP
 backend staged only when explicitly enabled. Immutable Nix packages receive
 their bundled-marketplace staging permission repair from the separate internal
 `nix-store-bundled-marketplace-permissions` feature.
 
 When enabled, resumed local Desktop threads request the `thread_tools` capability
-before the Codex app MCP server is configured. This preserves the model-visible
+before the upstream Codex app MCP server is configured. This preserves the model-visible
 `create_thread`, `list_threads`, `read_thread`, `wait_threads`, and
 `send_message_to_thread` tools across a Desktop restart without enabling those
 tools for remote hosts.
