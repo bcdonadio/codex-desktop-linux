@@ -100,7 +100,7 @@ function applyLinuxCodexAppThreadConfigPatch(currentSource) {
   }
 
   const buildConfigPattern =
-    /async buildMcpCodexConfig\(([A-Za-z_$][\w$]*)\)\{(let ([A-Za-z_$][\w$]*)=this\.[^;]{1,240}\.getConnection\([^;]+\);)([\s\S]{0,2600}?)return\{((?:\.\.\.[A-Za-z_$][\w$]*,?){2,4})\}\}/gu;
+    /async buildMcpCodexConfig\(([A-Za-z_$][\w$]*)\)\{(let ([A-Za-z_$][\w$]*)=this\.[^;]{1,240}\.getConnection\([^;]+\);)([\s\S]{0,2600}?)return\{((?:\.\.\.(?:[A-Za-z_$][\w$]*|await [A-Za-z_$][\w$]*\(\{[^{}]{1,500}\}\)),?){2,5})\}\}/gu;
   const buildMatches = [...currentSource.matchAll(buildConfigPattern)];
   if (buildMatches.length !== 1) {
     console.warn(

@@ -71,9 +71,9 @@ test("Linux thread resume requests sibling tools only for local Desktop MCP", as
 test("Linux thread resume keeps the complete Codex app MCP transport with tool filters", async () => {
   const source = [
     '"use strict";',
-    "var Ope={parse:e=>e},path={join:(...e)=>e.join(`/`)},KT=e=>JSON.stringify(e),browserConfig=async()=>({}),artifactConfig=async()=>({});",
+    "var Ope={parse:e=>e},path={join:(...e)=>e.join(`/`)},KT=e=>JSON.stringify(e),browserConfig=async()=>({}),hostConfig=async()=>({hostSession:!0}),artifactConfig=async()=>({});",
     "async function Ape({hostConfig:e,resourcesPath:t=process.resourcesPath}){let r=process.env.CODEX_APP_TOOLS_PIPE_PATH;if(e.kind!==`local`)return[];let i=!1,a={path:`/plugins/codex-app-tools`},s=JSON.stringify({mcpServers:{codex_app:{command:`launch`,args:[`server.mjs`],env:{}}}}),{mcpServers:{codex_app:c}}=Ope.parse(JSON.parse(s)),l={...c.env,CODEX_APP_TOOLS_PIPE_PATH:r},u=`/node`;if(u!=null&&(l.CODEX_MCP_NODE_PATH=u),i){c.command=`/bin/sh`,c.args=[`-c`,`shim`],c.env_vars=[`WSL_INTEROP`],l.WSLENV=`WSL_INTEROP/w`}return[`mcp_servers.codex_app=${KT({...c,command:process.platform===`win32`?c.command:path.join(a.path,c.command),cwd:i?`/`:a.path,enabled:!0,omit_tools_from:[`deferred`,`code_mode`],env:l})}`]}",
-    "class Host{constructor(e){this.kind=e,this.registry={getConnection:()=>({hostConfig:{kind:this.kind}})}}async buildMcpCodexConfig(e){let t=this.registry.getConnection(`local`);let n=!1,r={},[i,a]=await Promise.all([browserConfig(),artifactConfig()]),o={artifactSession:!0};return{...i,...a,...o}}}",
+    "class Host{constructor(e){this.kind=e,this.registry={getConnection:()=>({hostConfig:{kind:this.kind}})}}async buildMcpCodexConfig(e){let t=this.registry.getConnection(`local`);let n=!1,r={},[i,a]=await Promise.all([browserConfig(),artifactConfig()]),o={artifactSession:!0};return{...i,...await hostConfig({hostConfig:t.hostConfig}),...a,...o}}}",
     "globalThis.run=async e=>{let t=await new Host(e).buildMcpCodexConfig(`/workspace`);t[`mcp_servers.codex_app.enabled_tools`]=[`list_threads`];return t};",
   ].join("");
 
@@ -106,6 +106,7 @@ test("Linux thread resume keeps the complete Codex app MCP transport with tool f
     [...config["mcp_servers.codex_app.enabled_tools"]],
     ["list_threads"],
   );
+  assert.equal(config.hostSession, true);
   const unavailableConfig = await context.run("remote");
   assert.equal(unavailableConfig["mcp_servers.codex_app"], undefined);
 
