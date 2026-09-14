@@ -138,6 +138,7 @@ run_container_job() {
         -e "CI_PACKAGE_VERSION=$CI_PACKAGE_VERSION"
         -e "PACKAGE_VERSION=$CI_PACKAGE_VERSION"
         -e "CARGO_TERM_COLOR=${CARGO_TERM_COLOR:-always}"
+        --tmpfs /run/user:rw,nosuid,nodev,mode=0755
         -v "$REPO_DIR:/work"
         -v "$CI_CACHE_DIR:/ci-cache"
         -w /work
