@@ -1,6 +1,10 @@
 "use strict";
 
-const { extractedAppPatch, webviewAssetPatch } = require("../../scripts/patches/descriptor.js");
+const {
+  extractedAppPatch,
+  mainBundlePatch,
+  webviewAssetPatch,
+} = require("../../scripts/patches/descriptor.js");
 const { patchAutomationScheduleAssets } = require("../../scripts/patches/impl/automation-schedule.js");
 const {
   applyAutomationPluginEnablePatch,
@@ -8,6 +12,7 @@ const {
   matchesAutomationPluginEnableContract,
   matchesAutomationUpdateEagerToolContract,
 } = require("./eager-update.js");
+const { applyObservableAutomationViewPatch } = require("./observable-view.js");
 
 module.exports = [
   extractedAppPatch({
@@ -27,6 +32,13 @@ module.exports = [
     missingDescription: "dynamic Codex app tools bundle",
     skipDescription: "automation_update eager dynamic tool patch",
     apply: applyAutomationUpdateEagerToolPatch,
+  }),
+  mainBundlePatch({
+    id: "observable-automation-view",
+    phase: "main-bundle",
+    order: 20_115,
+    ciPolicy: "optional",
+    apply: applyObservableAutomationViewPatch,
   }),
   webviewAssetPatch({
     id: "automation-plugin-enable",

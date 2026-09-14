@@ -16,7 +16,12 @@ test("automation-extensions is disabled by default and owns all optional patches
   assert.equal(manifest.defaultEnabled, false);
   assert.deepEqual(
     descriptors.map(({ id }) => id),
-    ["multi-time-rrule", "eager-automation-update", "automation-plugin-enable"],
+    [
+      "multi-time-rrule",
+      "eager-automation-update",
+      "observable-automation-view",
+      "automation-plugin-enable",
+    ],
   );
   assert.ok(descriptors.every(({ ciPolicy }) => ciPolicy === "optional"));
 });
@@ -77,4 +82,49 @@ test("automation plugin enablement rejects an unexpected enabled-tools key contr
   } finally {
     console.warn = originalWarn;
   }
+});
+
+test("automation view returns machine-readable status and absence", async () => {
+  const source = [
+    '"use strict";',
+    "const store=new Map([[`existing`,{id:`existing`,kind:`heartbeat`,name:`Acceptance`,prompt:`Report marker`,rrule:`FREQ=WEEKLY;BYDAY=SU;BYHOUR=23;BYMINUTE=59`,status:`PAUSED`}]]);",
+    "const api={kr:e=>store.get(e)??null,Or:e=>store.delete(e)?`deleted`:`not_found`};",
+    "function Oz(e){return{contentItems:[{type:`inputText`,text:e==null?`Rendered automation card in the app.`:e.mode===`create`?`Created automation in the app.`:e.mode===`update`?`Updated automation in the app.`:e.deleteStatus===`not_found`?`Automation already does not exist in the app.`:`Deleted automation in the app.`},...e==null?[]:[{type:`inputText`,text:JSON.stringify(e)}]],success:!0}}",
+    "function Mz(e){return{response:{contentItems:[{type:`inputText`,text:e}],success:!1}}}",
+    "async function jz(e,{threadId:t,argumentsValue:n},r){let i={success:!0,data:n};if(!i.success)return Mz(`invalid`);let a=i.data;if(a.mode===`delete`){let t=a.id??``;try{let{item:n,status:r,success:i}=await e.delete({id:t});return{response:i?Oz({automationId:t,mode:`delete`,deleteStatus:r===`not_found`?`not_found`:`deleted`,snapshot:n==null?null:{kind:n.kind,name:n.name,rrule:n.rrule}}):Mz(`failed`).response,mutation:{mode:`delete`,id:t,item:n,status:r}}}catch(e){return{...Mz(`failed`),mutation:{mode:`delete`,id:t,item:null,status:`host_error`}}}}return{response:Oz()}}",
+    "var Fz=class{async delete({id:e}){let t=api.kr(e),r=api.Or(e),i=r===`deleted`||r===`not_found`;return{item:t,success:i,status:r}}};",
+    "globalThis.run=async id=>(await jz(new Fz,{threadId:`thread`,argumentsValue:{mode:`view`,id}},()=>null)).response;",
+  ].join("");
+
+  const patched = descriptors
+    .filter(({ phase }) => phase === "main-bundle")
+    .reduce((current, descriptor) => descriptor.apply(current), source);
+  const context = vm.createContext({});
+  vm.runInContext(patched, context);
+
+  const foundResponse = await context.run("existing");
+  assert.equal(foundResponse.contentItems[0].text, "Read automation from the app.");
+  assert.deepEqual(JSON.parse(foundResponse.contentItems[1].text), {
+    automationId: "existing",
+    mode: "view",
+    viewStatus: "found",
+    status: "PAUSED",
+    snapshot: {
+      kind: "heartbeat",
+      name: "Acceptance",
+      prompt: "Report marker",
+      rrule: "FREQ=WEEKLY;BYDAY=SU;BYHOUR=23;BYMINUTE=59",
+      status: "PAUSED",
+    },
+  });
+
+  const missingResponse = await context.run("missing");
+  assert.equal(missingResponse.contentItems[0].text, "Automation does not exist in the app.");
+  assert.deepEqual(JSON.parse(missingResponse.contentItems[1].text), {
+    automationId: "missing",
+    mode: "view",
+    viewStatus: "not_found",
+    status: null,
+    snapshot: null,
+  });
 });
