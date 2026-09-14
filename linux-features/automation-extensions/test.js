@@ -7,11 +7,12 @@ const vm = require("node:vm");
 const manifest = require("./feature.json");
 const descriptors = require("./patch.js");
 const {
+  applyAutomationPluginEnablePatch,
   applyAutomationUpdateEagerToolPatch,
   matchesAutomationUpdateEagerToolContract,
 } = require("./eager-update.js");
 
-test("automation-extensions is disabled by default and owns both optional patches", () => {
+test("automation-extensions is disabled by default and owns all optional patches", () => {
   assert.equal(manifest.defaultEnabled, false);
   assert.deepEqual(
     descriptors.map(({ id }) => id),
@@ -32,9 +33,10 @@ test("automation_update remains eager in the current dynamic tool catalog", () =
 test("local Desktop threads enable the plugin transport that owns automation_update", async () => {
   const source = [
     "const automation={name:`automation_update`},E=!0,YBl=new Set,BBl=[];",
-    "function key(){return `plugins.codex-app-tools@openai-bundled.mcp_servers.codex_app.enabled_tools`}",
+    "const pluginKey=`plugins.codex-app-tools@openai-bundled.mcp_servers.codex_app.enabled_tools`,legacyKey=`mcp_servers.codex_app.enabled_tools`;",
+    "function key(version){return version?pluginKey:legacyKey}",
     "function catalog(){return[automation].map(e=>({type:`function`,...e,...E&&(!YBl.has(e.name)||BBl.includes(e.name))?{deferLoading:!0}:{}}))}",
-    "async function build(local){let result={config:{}},n=catalog(),client={getAppServerVersion:()=>`0.154.0`},inputs={usesDesktopMcp:local};inputs.usesDesktopMcp&&(result.config={...result.config,[key(client.getAppServerVersion())]:n.flatMap(e=>e.type===`namespace`?e.tools.map(({name:e})=>e):[e.name])});return result.config}",
+    "async function build(local,usePlugin){let result={config:{unrelated:7}},n=catalog(),client={getAppServerVersion:()=>usePlugin},inputs={usesDesktopMcp:local};inputs.usesDesktopMcp&&(result.config={...result.config,[key(client.getAppServerVersion())]:n.flatMap(e=>e.type===`namespace`?e.tools.map(({name:e})=>e):[e.name])});return result.config}",
     "globalThis.build=build;",
   ].join(";");
 
@@ -44,7 +46,8 @@ test("local Desktop threads enable the plugin transport that owns automation_upd
   const context = vm.createContext({});
   vm.runInContext(patched, context);
 
-  const localConfig = await context.build(true);
+  const localConfig = await context.build(true, true);
+  assert.equal(localConfig.unrelated, 7);
   assert.deepEqual(
     Array.from(localConfig["plugins.codex-app-tools@openai-bundled.mcp_servers.codex_app.enabled_tools"]),
     ["automation_update"],
@@ -53,5 +56,25 @@ test("local Desktop threads enable the plugin transport that owns automation_upd
     localConfig["plugins.codex-app-tools@openai-bundled.mcp_servers.codex_app.enabled"],
     true,
   );
-  assert.deepEqual(Object.keys(await context.build(false)), []);
+  const legacyConfig = await context.build(true, false);
+  assert.deepEqual(Array.from(legacyConfig["mcp_servers.codex_app.enabled_tools"]), ["automation_update"]);
+  assert.equal(legacyConfig["mcp_servers.codex_app.enabled"], true);
+  assert.deepEqual(Object.keys(await context.build(false, true)), ["unrelated"]);
+  assert.equal(applyAutomationPluginEnablePatch(patched), patched);
+});
+
+test("automation plugin enablement rejects an unexpected enabled-tools key contract", () => {
+  const source = [
+    "const pluginKey=`plugins.codex-app-tools@openai-bundled.mcp_servers.codex_app.tools`,legacyKey=`mcp_servers.codex_app.tools`;",
+    "function key(version){return version?pluginKey:legacyKey}",
+    "async function build(local){let result={config:{}},n=[],client={getAppServerVersion:()=>!0},inputs={usesDesktopMcp:local};inputs.usesDesktopMcp&&(result.config={...result.config,[key(client.getAppServerVersion())]:n.flatMap(e=>e.type===`namespace`?e.tools.map(({name:e})=>e):[e.name])});return result.config}",
+  ].join(";");
+
+  const originalWarn = console.warn;
+  console.warn = () => {};
+  try {
+    assert.equal(applyAutomationPluginEnablePatch(source), source);
+  } finally {
+    console.warn = originalWarn;
+  }
 });

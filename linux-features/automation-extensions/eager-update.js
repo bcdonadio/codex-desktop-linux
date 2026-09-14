@@ -11,6 +11,10 @@ const DYNAMIC = new RegExp(
   "u",
 );
 const AUTOMATION_PLUGIN_ENABLE_MARKER = "codexLinuxEnableAutomationPluginTransport";
+const AUTOMATION_PLUGIN_ENABLED_TOOL_KEYS = [
+  "plugins.codex-app-tools@openai-bundled.mcp_servers.codex_app.enabled_tools",
+  "mcp_servers.codex_app.enabled_tools",
+];
 const DESKTOP_MCP_CONFIG_PREFIX = new RegExp(
   `(${IDENT})\\.usesDesktopMcp&&\\((${IDENT})\\.config=\\{\\.\\.\\.\\2\\.config,\\[(${IDENT}\\((${IDENT})\\.getAppServerVersion\\(\\)\\))\\]:`,
   "gu",
@@ -39,13 +43,27 @@ function findAutomationPluginConfigAssignments(source) {
   return [...source.matchAll(new RegExp(DESKTOP_MCP_CONFIG_PREFIX.source, "gu"))];
 }
 
+function hasAutomationPluginEnabledToolsKeyContract(source) {
+  return AUTOMATION_PLUGIN_ENABLED_TOOL_KEYS.every((key) => source.includes(key));
+}
+
 function matchesAutomationPluginEnableContract(source) {
   return source.includes(AUTOMATION_PLUGIN_ENABLE_MARKER) ||
-    findAutomationPluginConfigAssignments(source).length === 1;
+    hasAutomationPluginEnabledToolsKeyContract(source) &&
+      findAutomationPluginConfigAssignments(source).length === 1;
 }
 
 function applyAutomationPluginEnablePatch(source) {
   if (source.includes(AUTOMATION_PLUGIN_ENABLE_MARKER)) return source;
+
+  if (!hasAutomationPluginEnabledToolsKeyContract(source)) {
+    if (source.includes("codex_app.enabled_tools") || source.includes("codex_app.tools")) {
+      console.warn(
+        "WARN: Codex app enabled-tools config keys changed — skipping automation plugin enable patch",
+      );
+    }
+    return source;
+  }
 
   const matches = findAutomationPluginConfigAssignments(source);
   if (matches.length !== 1) {
@@ -77,7 +95,7 @@ function applyAutomationPluginEnablePatch(source) {
 
   const keyExpression = match[3];
   const enableEntry =
-    `,[${keyExpression}.replace(/\\.enabled_tools$/,\`.enabled\`)]:!0/*${AUTOMATION_PLUGIN_ENABLE_MARKER}*/`;
+    `,...(e=>{if(typeof e!==\`string\`||!e.endsWith(\`.enabled_tools\`))throw Error(\`Unexpected Codex app enabled-tools config key\`);return{[e.slice(0,-\`.enabled_tools\`.length)+\`.enabled\`]:!0}})(${keyExpression})/*${AUTOMATION_PLUGIN_ENABLE_MARKER}*/`;
   return source.slice(0, objectClose) + enableEntry + source.slice(objectClose);
 }
 
