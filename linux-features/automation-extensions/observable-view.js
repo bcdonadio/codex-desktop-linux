@@ -1,11 +1,20 @@
 "use strict";
 
+const { findMatchingBrace } = require("../../scripts/patches/lib/minified-js.js");
+
 const IDENT = "[A-Za-z_$][\\w$]*";
 const OBSERVABLE_AUTOMATION_VIEW_MARKER = "codexLinuxObservableAutomationView";
 
 const OUTPUT_HELPER = new RegExp(
   "function (" + IDENT + ")\\((" + IDENT + ")\\)\\{return\\{contentItems:" +
     "\\[\\{type:`inputText`,text:(" + IDENT + ")==null\\?`Rendered automation card in the app\\.`:",
+  "gu",
+);
+const PATCHED_OUTPUT_HELPER = new RegExp(
+  "function (" + IDENT + ")\\((" + IDENT + ")\\)\\{return\\{contentItems:" +
+    "\\[\\{type:`inputText`,text:(" + IDENT + ")==null\\?`Rendered automation card in the app\\.`:" +
+    "\\3\\.mode===`view`\\?\\3\\.viewStatus===`not_found`\\?" +
+    "`Automation does not exist in the app\\.`:`Read automation from the app\\.`:",
   "gu",
 );
 const DELETE_HANDLER = new RegExp(
@@ -18,39 +27,154 @@ const STORE_DELETE_METHOD = new RegExp(
   `async delete\\(\\{id:(${IDENT})\\}\\)\\{let (${IDENT})=(${IDENT})\\.kr\\(\\1\\),(${IDENT})=\\3\\.Or\\(\\1\\),`,
   "gu",
 );
+const STORE_VIEW_METHOD = new RegExp(
+  `async view\\(\\{id:(${IDENT})\\}\\)\\{return\\{item:(${IDENT})\\.kr\\(\\1\\)\\}\\}`,
+  "gu",
+);
+const CLASS_OPEN = new RegExp(
+  `var (${IDENT})=class(?: extends ${IDENT}\\.${IDENT})?\\{`,
+  "gu",
+);
+
+function findMatchingParenthesis(source, openIndex) {
+  let depth = 0;
+  let quote = null;
+  let escaped = false;
+  for (let index = openIndex; index < source.length; index += 1) {
+    const char = source[index];
+    if (quote != null) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === quote) {
+        quote = null;
+      }
+      continue;
+    }
+    if (char === "'" || char === '"' || char === "`") {
+      quote = char;
+    } else if (char === "(") {
+      depth += 1;
+    } else if (char === ")") {
+      depth -= 1;
+      if (depth === 0) return index;
+    }
+  }
+  return -1;
+}
+
+function enclosingHandler(source, index) {
+  const prefixes = [...source.slice(0, index + 1).matchAll(
+    new RegExp(`async function (${IDENT})\\((${IDENT}),`, "gu"),
+  )];
+  const prefix = prefixes.at(-1);
+  if (prefix == null) return null;
+  const parametersOpen = source.indexOf("(", prefix.index);
+  const parametersClose = findMatchingParenthesis(source, parametersOpen);
+  const open = parametersClose + 1;
+  const close = findMatchingBrace(source, open);
+  if (parametersOpen === -1 || parametersClose === -1 || source[open] !== "{" || close < index) {
+    return null;
+  }
+  return {
+    name: prefix[1],
+    host: prefix[2],
+    open,
+    close,
+    source: source.slice(prefix.index, close + 1),
+  };
+}
+
+function enclosingClass(source, index) {
+  const openings = [...source.slice(0, index + 1).matchAll(new RegExp(CLASS_OPEN.source, "gu"))];
+  for (const opening of openings.reverse()) {
+    const open = source.indexOf("{", opening.index);
+    const close = findMatchingBrace(source, open);
+    if (open !== -1 && close >= index) {
+      return {
+        name: opening[1],
+        open,
+        close,
+        source: source.slice(opening.index, close + 1),
+      };
+    }
+  }
+  return null;
+}
+
+function classDelegatesToHandler(classContract, handlerName) {
+  const escapedHandlerName = handlerName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const delegation = new RegExp(
+    `executeUpdateTool\\((${IDENT})\\)\\{return \\1\\.hostId===\`local\`\\?` +
+      `${escapedHandlerName}\\(this,\\1,`,
+    "u",
+  );
+  return delegation.test(classContract.source);
+}
+
+function linkedStoreContract(source, storeMatches, handlerName) {
+  const linked = storeMatches.flatMap((store) => {
+    const owner = enclosingClass(source, store.index);
+    return owner != null && classDelegatesToHandler(owner, handlerName) ? [{ store, owner }] : [];
+  });
+  return linked.length === 1 ? linked[0] : null;
+}
 
 function currentAutomationViewContract(source) {
   const outputMatches = [...source.matchAll(new RegExp(OUTPUT_HELPER.source, "gu"))];
   const handlerMatches = [...source.matchAll(new RegExp(DELETE_HANDLER.source, "gu"))];
   const storeMatches = [...source.matchAll(new RegExp(STORE_DELETE_METHOD.source, "gu"))];
-  if (outputMatches.length !== 1 || handlerMatches.length !== 1 || storeMatches.length !== 1) {
+  if (outputMatches.length !== 1 || handlerMatches.length !== 1 || storeMatches.length === 0) {
     return null;
   }
 
   const output = outputMatches[0];
   if (output[2] !== output[3]) return null;
-  const handler = handlerMatches[0];
-  const handlerContext = source.slice(handler.index, handler.index + 2200);
-  if (!handlerContext.includes(`return{response:${output[1]}()}`)) return null;
+  const handlerMatch = handlerMatches[0];
+  const handler = enclosingHandler(source, handlerMatch.index);
+  if (handler == null || handler.host !== handlerMatch[6]) return null;
+  if (!handler.source.includes(`return{response:${output[1]}()}`)) return null;
+  const linkedStore = linkedStoreContract(source, storeMatches, handler.name);
+  if (linkedStore == null) return null;
 
-  return { output, handler, store: storeMatches[0] };
+  return { output, handler: handlerMatch, linkedStore };
+}
+
+function patchedAutomationViewContract(source) {
+  if (source.split(OBSERVABLE_AUTOMATION_VIEW_MARKER).length !== 2) return null;
+  const outputMatches = [...source.matchAll(new RegExp(PATCHED_OUTPUT_HELPER.source, "gu"))];
+  const storeMatches = [...source.matchAll(new RegExp(STORE_VIEW_METHOD.source, "gu"))];
+  if (outputMatches.length !== 1 || storeMatches.length === 0) return null;
+  const output = outputMatches[0];
+  if (output[2] !== output[3]) return null;
+
+  const markerIndex = source.indexOf(OBSERVABLE_AUTOMATION_VIEW_MARKER);
+  const handler = enclosingHandler(source, markerIndex);
+  if (handler == null) return null;
+  const viewBranch = new RegExp(
+    `if\\((${IDENT})\\.mode===\`view\`\\)\\{let codexLinuxAutomationViewId=\\1\\.id\\?\\?\`\`;try\\{` +
+      `let\\{item:codexLinuxAutomationViewItem\\}=await (${IDENT})\\.view\\(\\{id:codexLinuxAutomationViewId\\}\\)`,
+    "u",
+  ).exec(handler.source);
+  if (viewBranch == null || viewBranch[2] !== handler.host) return null;
+  if (!handler.source.includes(`response:${output[1]}(codexLinuxAutomationViewResult)`)) return null;
+  if (!handler.source.includes("viewStatus:codexLinuxAutomationViewItem==null?`not_found`:`found`")) return null;
+  if (!handler.source.includes("status:codexLinuxAutomationViewItem?.status??null")) return null;
+  if (!handler.source.includes("snapshot:codexLinuxAutomationViewItem==null?null:")) return null;
+  const linkedStore = linkedStoreContract(source, storeMatches, handler.name);
+  return linkedStore == null ? null : { output, handler, linkedStore };
 }
 
 function matchesObservableAutomationViewContract(source) {
-  return source.includes(OBSERVABLE_AUTOMATION_VIEW_MARKER) ||
-    currentAutomationViewContract(source) != null;
+  return patchedAutomationViewContract(source) != null || currentAutomationViewContract(source) != null;
 }
 
 function applyObservableAutomationViewPatch(source) {
-  if (source.includes(OBSERVABLE_AUTOMATION_VIEW_MARKER)) return source;
+  if (patchedAutomationViewContract(source) != null) return source;
   const contract = currentAutomationViewContract(source);
   if (contract == null) {
-    if (source.includes("Rendered automation card in the app.")) {
-      console.warn(
-        "WARN: Could not uniquely identify the automation view handler — skipping observable automation view patch",
-      );
-    }
-    return source;
+    throw new Error("Observable automation view contract did not match the current or patched bundle");
   }
 
   const outputFunction = contract.output[1];
@@ -62,10 +186,7 @@ function applyObservableAutomationViewPatch(source) {
     `${outputValue}.deleteStatus===\`not_found\`?\`Automation already does not exist in the app.\`:` +
     "`Deleted automation in the app.`";
   if (source.indexOf(outputNeedle) === -1 || source.indexOf(outputNeedle) !== source.lastIndexOf(outputNeedle)) {
-    console.warn(
-      "WARN: Automation result text contract changed — skipping observable automation view patch",
-    );
-    return source;
+    throw new Error("Automation result text contract is not unique");
   }
   const outputReplacement =
     `${outputValue}==null?\`Rendered automation card in the app.\`:` +
@@ -88,14 +209,18 @@ function applyObservableAutomationViewPatch(source) {
     "[{type:`inputText`,text:`Failed to view automation.`}],success:!1}}}" +
     `}/*${OBSERVABLE_AUTOMATION_VIEW_MARKER}*/`;
 
-  const storeId = contract.store[1];
-  const storeModule = contract.store[3];
+  const storeId = contract.linkedStore.store[1];
+  const storeModule = contract.linkedStore.store[3];
   const viewMethod = `async view({id:${storeId}}){return{item:${storeModule}.kr(${storeId})}}`;
 
-  return source
+  const patched = source
     .replace(outputNeedle, outputReplacement)
     .replace(contract.handler[0], viewBranch + contract.handler[0])
-    .replace(contract.store[0], viewMethod + contract.store[0]);
+    .replace(contract.linkedStore.store[0], viewMethod + contract.linkedStore.store[0]);
+  if (patchedAutomationViewContract(patched) == null) {
+    throw new Error("Observable automation view patch did not produce the complete contract");
+  }
+  return patched;
 }
 
 module.exports = {

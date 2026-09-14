@@ -11,6 +11,23 @@ const {
   applyAutomationUpdateEagerToolPatch,
   matchesAutomationUpdateEagerToolContract,
 } = require("./eager-update.js");
+const {
+  applyObservableAutomationViewPatch,
+  matchesObservableAutomationViewContract,
+} = require("./observable-view.js");
+
+function automationViewFixture(hostClass = null) {
+  return [
+    '"use strict";',
+    "const store=new Map([[`existing`,{id:`existing`,kind:`heartbeat`,name:`Acceptance`,prompt:`Report marker`,rrule:`FREQ=WEEKLY;BYDAY=SU;BYHOUR=23;BYMINUTE=59`,status:`PAUSED`}]]);",
+    "const api={kr:e=>store.get(e)??null,Or:e=>store.delete(e)?`deleted`:`not_found`};",
+    "function Oz(e){return{contentItems:[{type:`inputText`,text:e==null?`Rendered automation card in the app.`:e.mode===`create`?`Created automation in the app.`:e.mode===`update`?`Updated automation in the app.`:e.deleteStatus===`not_found`?`Automation already does not exist in the app.`:`Deleted automation in the app.`},...e==null?[]:[{type:`inputText`,text:JSON.stringify(e)}]],success:!0}}",
+    "function Mz(e){return{response:{contentItems:[{type:`inputText`,text:e}],success:!1}}}",
+    "async function jz(e,{threadId:t,argumentsValue:n},r){let i={success:!0,data:n};if(!i.success)return Mz(`invalid`);let a=i.data;if(a.mode===`delete`){let t=a.id??``;try{let{item:n,status:r,success:i}=await e.delete({id:t});return{response:i?Oz({automationId:t,mode:`delete`,deleteStatus:r===`not_found`?`not_found`:`deleted`,snapshot:n==null?null:{kind:n.kind,name:n.name,rrule:n.rrule}}):Mz(`failed`).response,mutation:{mode:`delete`,id:t,item:n,status:r}}}catch(e){return{...Mz(`failed`),mutation:{mode:`delete`,id:t,item:null,status:`host_error`}}}}return{response:Oz()}}",
+    hostClass ?? "var Fz=class{async delete({id:e}){let t=api.kr(e),r=api.Or(e),i=r===`deleted`||r===`not_found`;return{item:t,success:i,status:r}}executeUpdateTool(e){return e.hostId===`local`?jz(this,e,e=>null):null}};",
+    "globalThis.run=async id=>(await jz(new Fz,{threadId:`thread`,argumentsValue:{mode:`view`,id}},()=>null)).response;",
+  ].join("");
+}
 
 test("automation-extensions is disabled by default and owns all optional patches", () => {
   assert.equal(manifest.defaultEnabled, false);
@@ -85,20 +102,13 @@ test("automation plugin enablement rejects an unexpected enabled-tools key contr
 });
 
 test("automation view returns machine-readable status and absence", async () => {
-  const source = [
-    '"use strict";',
-    "const store=new Map([[`existing`,{id:`existing`,kind:`heartbeat`,name:`Acceptance`,prompt:`Report marker`,rrule:`FREQ=WEEKLY;BYDAY=SU;BYHOUR=23;BYMINUTE=59`,status:`PAUSED`}]]);",
-    "const api={kr:e=>store.get(e)??null,Or:e=>store.delete(e)?`deleted`:`not_found`};",
-    "function Oz(e){return{contentItems:[{type:`inputText`,text:e==null?`Rendered automation card in the app.`:e.mode===`create`?`Created automation in the app.`:e.mode===`update`?`Updated automation in the app.`:e.deleteStatus===`not_found`?`Automation already does not exist in the app.`:`Deleted automation in the app.`},...e==null?[]:[{type:`inputText`,text:JSON.stringify(e)}]],success:!0}}",
-    "function Mz(e){return{response:{contentItems:[{type:`inputText`,text:e}],success:!1}}}",
-    "async function jz(e,{threadId:t,argumentsValue:n},r){let i={success:!0,data:n};if(!i.success)return Mz(`invalid`);let a=i.data;if(a.mode===`delete`){let t=a.id??``;try{let{item:n,status:r,success:i}=await e.delete({id:t});return{response:i?Oz({automationId:t,mode:`delete`,deleteStatus:r===`not_found`?`not_found`:`deleted`,snapshot:n==null?null:{kind:n.kind,name:n.name,rrule:n.rrule}}):Mz(`failed`).response,mutation:{mode:`delete`,id:t,item:n,status:r}}}catch(e){return{...Mz(`failed`),mutation:{mode:`delete`,id:t,item:null,status:`host_error`}}}}return{response:Oz()}}",
-    "var Fz=class{async delete({id:e}){let t=api.kr(e),r=api.Or(e),i=r===`deleted`||r===`not_found`;return{item:t,success:i,status:r}}};",
-    "globalThis.run=async id=>(await jz(new Fz,{threadId:`thread`,argumentsValue:{mode:`view`,id}},()=>null)).response;",
-  ].join("");
+  const source = automationViewFixture();
 
   const patched = descriptors
     .filter(({ phase }) => phase === "main-bundle")
     .reduce((current, descriptor) => descriptor.apply(current), source);
+  assert.equal(matchesObservableAutomationViewContract(patched), true);
+  assert.equal(applyObservableAutomationViewPatch(patched), patched);
   const context = vm.createContext({});
   vm.runInContext(patched, context);
 
@@ -127,4 +137,35 @@ test("automation view returns machine-readable status and absence", async () => 
     status: null,
     snapshot: null,
   });
+});
+
+test("automation view patch fails closed on drift and incomplete markers", () => {
+  assert.throws(
+    () => applyObservableAutomationViewPatch("const changed=`Automation card copy changed`;"),
+    /did not match the current or patched bundle/,
+  );
+  assert.throws(
+    () => applyObservableAutomationViewPatch("const marker=`codexLinuxObservableAutomationView`;"),
+    /did not match the current or patched bundle/,
+  );
+  const partial = automationViewFixture().replace(
+    "return{response:Oz()}",
+    "return{response:Oz()}/*codexLinuxObservableAutomationView*/",
+  );
+  assert.throws(
+    () => applyObservableAutomationViewPatch(partial),
+    /Observable automation view/,
+  );
+});
+
+test("automation view patch rejects an unrelated matching store class", () => {
+  const mismatchedHost = automationViewFixture(
+    "var ActualHost=class{executeUpdateTool(e){return e.hostId===`local`?jz(this,e,e=>null):null}};" +
+      "var Decoy=class{async delete({id:e}){let t=api.kr(e),r=api.Or(e),i=r===`deleted`||r===`not_found`;return{item:t,success:i,status:r}}};" +
+      "var Fz=ActualHost;",
+  );
+  assert.throws(
+    () => applyObservableAutomationViewPatch(mismatchedHost),
+    /did not match the current or patched bundle/,
+  );
 });
