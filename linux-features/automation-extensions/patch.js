@@ -3,7 +3,9 @@
 const { extractedAppPatch, webviewAssetPatch } = require("../../scripts/patches/descriptor.js");
 const { patchAutomationScheduleAssets } = require("../../scripts/patches/impl/automation-schedule.js");
 const {
+  applyAutomationPluginEnablePatch,
   applyAutomationUpdateEagerToolPatch,
+  matchesAutomationPluginEnableContract,
   matchesAutomationUpdateEagerToolContract,
 } = require("./eager-update.js");
 
@@ -25,5 +27,16 @@ module.exports = [
     missingDescription: "dynamic Codex app tools bundle",
     skipDescription: "automation_update eager dynamic tool patch",
     apply: applyAutomationUpdateEagerToolPatch,
+  }),
+  webviewAssetPatch({
+    id: "automation-plugin-enable",
+    phase: "webview-asset",
+    order: 20_120,
+    ciPolicy: "optional",
+    pattern: /^app-initial-[^.]+\.js$/,
+    assetMatch: matchesAutomationPluginEnableContract,
+    missingDescription: "Desktop MCP dynamic-tool config",
+    skipDescription: "automation plugin enable patch",
+    apply: applyAutomationPluginEnablePatch,
   }),
 ];
