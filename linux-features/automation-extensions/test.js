@@ -156,6 +156,26 @@ test("automation view patch fails closed on drift and incomplete markers", () =>
     () => applyObservableAutomationViewPatch(partial),
     /Observable automation view/,
   );
+
+  const patched = applyObservableAutomationViewPatch(automationViewFixture());
+  const corruptions = [
+    ["automationId:codexLinuxAutomationViewId,", ""],
+    ["mode:`view`,viewStatus:", "viewStatus:"],
+    ["prompt:codexLinuxAutomationViewItem.prompt,", ""],
+    [
+      "[{type:`inputText`,text:`Failed to view automation.`}],success:!1",
+      "[{type:`inputText`,text:`Failed to view automation.`}],success:!0",
+    ],
+  ];
+  for (const [needle, replacement] of corruptions) {
+    assert.equal(patched.includes(needle), true);
+    const corrupted = patched.replace(needle, replacement);
+    assert.equal(matchesObservableAutomationViewContract(corrupted), false);
+    assert.throws(
+      () => applyObservableAutomationViewPatch(corrupted),
+      /did not match the current or patched bundle/,
+    );
+  }
 });
 
 test("automation view patch rejects an unrelated matching store class", () => {

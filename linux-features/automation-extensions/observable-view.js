@@ -121,6 +121,49 @@ function linkedStoreContract(source, storeMatches, handlerName) {
   return linked.length === 1 ? linked[0] : null;
 }
 
+function occursExactlyOnce(source, value) {
+  return source.indexOf(value) !== -1 && source.indexOf(value) === source.lastIndexOf(value);
+}
+
+function automationOutputNeedle(outputValue) {
+  return `${outputValue}==null?\`Rendered automation card in the app.\`:` +
+    `${outputValue}.mode===\`create\`?\`Created automation in the app.\`:` +
+    `${outputValue}.mode===\`update\`?\`Updated automation in the app.\`:` +
+    `${outputValue}.deleteStatus===\`not_found\`?\`Automation already does not exist in the app.\`:` +
+    "`Deleted automation in the app.`";
+}
+
+function observableAutomationOutput(outputValue) {
+  const original = automationOutputNeedle(outputValue);
+  return `${outputValue}==null?\`Rendered automation card in the app.\`:` +
+    `${outputValue}.mode===\`view\`?${outputValue}.viewStatus===\`not_found\`?` +
+    "`Automation does not exist in the app.`:`Read automation from the app.`:" +
+    original.slice(original.indexOf(`${outputValue}.mode===\`create\``));
+}
+
+function automationOutputFunction(outputFunction, outputValue, outputText) {
+  return `function ${outputFunction}(${outputValue}){return{contentItems:[{type:\`inputText\`,text:${outputText}},` +
+    `...${outputValue}==null?[]:[{type:\`inputText\`,text:JSON.stringify(${outputValue})}]],success:!0}}`;
+}
+
+function observableViewBranch(argumentValue, host, outputFunction) {
+  return `if(${argumentValue}.mode===\`view\`){let codexLinuxAutomationViewId=${argumentValue}.id??\`\`;try{` +
+    `let{item:codexLinuxAutomationViewItem}=await ${host}.view({id:codexLinuxAutomationViewId}),` +
+    "codexLinuxAutomationViewResult={automationId:codexLinuxAutomationViewId,mode:`view`," +
+    "viewStatus:codexLinuxAutomationViewItem==null?`not_found`:`found`," +
+    "status:codexLinuxAutomationViewItem?.status??null," +
+    "snapshot:codexLinuxAutomationViewItem==null?null:{kind:codexLinuxAutomationViewItem.kind," +
+    "name:codexLinuxAutomationViewItem.name,prompt:codexLinuxAutomationViewItem.prompt," +
+    "rrule:codexLinuxAutomationViewItem.rrule,status:codexLinuxAutomationViewItem.status}};" +
+    `return{response:${outputFunction}(codexLinuxAutomationViewResult)}}catch{return{response:{contentItems:` +
+    "[{type:`inputText`,text:`Failed to view automation.`}],success:!1}}}" +
+    `}/*${OBSERVABLE_AUTOMATION_VIEW_MARKER}*/`;
+}
+
+function observableViewMethod(storeId, storeModule) {
+  return `async view({id:${storeId}}){return{item:${storeModule}.kr(${storeId})}}`;
+}
+
 function currentAutomationViewContract(source) {
   const outputMatches = [...source.matchAll(new RegExp(OUTPUT_HELPER.source, "gu"))];
   const handlerMatches = [...source.matchAll(new RegExp(DELETE_HANDLER.source, "gu"))];
@@ -131,6 +174,10 @@ function currentAutomationViewContract(source) {
 
   const output = outputMatches[0];
   if (output[2] !== output[3]) return null;
+  const outputText = automationOutputNeedle(output[2]);
+  if (!occursExactlyOnce(source, automationOutputFunction(output[1], output[2], outputText))) {
+    return null;
+  }
   const handlerMatch = handlerMatches[0];
   const handler = enclosingHandler(source, handlerMatch.index);
   if (handler == null || handler.host !== handlerMatch[6]) return null;
@@ -158,12 +205,20 @@ function patchedAutomationViewContract(source) {
     "u",
   ).exec(handler.source);
   if (viewBranch == null || viewBranch[2] !== handler.host) return null;
-  if (!handler.source.includes(`response:${output[1]}(codexLinuxAutomationViewResult)`)) return null;
-  if (!handler.source.includes("viewStatus:codexLinuxAutomationViewItem==null?`not_found`:`found`")) return null;
-  if (!handler.source.includes("status:codexLinuxAutomationViewItem?.status??null")) return null;
-  if (!handler.source.includes("snapshot:codexLinuxAutomationViewItem==null?null:")) return null;
+  const expectedOutput = automationOutputFunction(
+    output[1],
+    output[2],
+    observableAutomationOutput(output[2]),
+  );
+  if (!occursExactlyOnce(source, expectedOutput)) return null;
+  const expectedBranch = observableViewBranch(viewBranch[1], viewBranch[2], output[1]);
+  if (!occursExactlyOnce(handler.source, expectedBranch)) return null;
   const linkedStore = linkedStoreContract(source, storeMatches, handler.name);
-  return linkedStore == null ? null : { output, handler, linkedStore };
+  if (linkedStore == null) return null;
+  if (linkedStore.store[0] !== observableViewMethod(linkedStore.store[1], linkedStore.store[2])) {
+    return null;
+  }
+  return { output, handler, linkedStore };
 }
 
 function matchesObservableAutomationViewContract(source) {
@@ -179,39 +234,19 @@ function applyObservableAutomationViewPatch(source) {
 
   const outputFunction = contract.output[1];
   const outputValue = contract.output[2];
-  const outputNeedle =
-    `${outputValue}==null?\`Rendered automation card in the app.\`:` +
-    `${outputValue}.mode===\`create\`?\`Created automation in the app.\`:` +
-    `${outputValue}.mode===\`update\`?\`Updated automation in the app.\`:` +
-    `${outputValue}.deleteStatus===\`not_found\`?\`Automation already does not exist in the app.\`:` +
-    "`Deleted automation in the app.`";
-  if (source.indexOf(outputNeedle) === -1 || source.indexOf(outputNeedle) !== source.lastIndexOf(outputNeedle)) {
+  const outputNeedle = automationOutputNeedle(outputValue);
+  if (!occursExactlyOnce(source, outputNeedle)) {
     throw new Error("Automation result text contract is not unique");
   }
-  const outputReplacement =
-    `${outputValue}==null?\`Rendered automation card in the app.\`:` +
-    `${outputValue}.mode===\`view\`?${outputValue}.viewStatus===\`not_found\`?` +
-    "`Automation does not exist in the app.`:`Read automation from the app.`:" +
-    outputNeedle.slice(outputNeedle.indexOf(`${outputValue}.mode===\`create\``));
+  const outputReplacement = observableAutomationOutput(outputValue);
 
   const argumentValue = contract.handler[1];
   const host = contract.handler[6];
-  const viewBranch =
-    `if(${argumentValue}.mode===\`view\`){let codexLinuxAutomationViewId=${argumentValue}.id??\`\`;try{` +
-    `let{item:codexLinuxAutomationViewItem}=await ${host}.view({id:codexLinuxAutomationViewId}),` +
-    "codexLinuxAutomationViewResult={automationId:codexLinuxAutomationViewId,mode:`view`," +
-    "viewStatus:codexLinuxAutomationViewItem==null?`not_found`:`found`," +
-    "status:codexLinuxAutomationViewItem?.status??null," +
-    "snapshot:codexLinuxAutomationViewItem==null?null:{kind:codexLinuxAutomationViewItem.kind," +
-    "name:codexLinuxAutomationViewItem.name,prompt:codexLinuxAutomationViewItem.prompt," +
-    "rrule:codexLinuxAutomationViewItem.rrule,status:codexLinuxAutomationViewItem.status}};" +
-    `return{response:${outputFunction}(codexLinuxAutomationViewResult)}}catch{return{response:{contentItems:` +
-    "[{type:`inputText`,text:`Failed to view automation.`}],success:!1}}}" +
-    `}/*${OBSERVABLE_AUTOMATION_VIEW_MARKER}*/`;
+  const viewBranch = observableViewBranch(argumentValue, host, outputFunction);
 
   const storeId = contract.linkedStore.store[1];
   const storeModule = contract.linkedStore.store[3];
-  const viewMethod = `async view({id:${storeId}}){return{item:${storeModule}.kr(${storeId})}}`;
+  const viewMethod = observableViewMethod(storeId, storeModule);
 
   const patched = source
     .replace(outputNeedle, outputReplacement)
