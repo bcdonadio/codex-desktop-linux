@@ -1,18 +1,33 @@
 ---
 name: update-chatgpt
-description: Use when updating codex-desktop-linux from origin/main, reconciling superseded Linux patches, or installing a signed-upstream native package on the update branch.
+description: Use when updating codex-desktop-linux from origin/main, repairing Fedora feature drift, or producing or installing the signed-upstream Fedora RPM on the update branch.
 ---
 
 # Update ChatGPT
 
 ## Overview
 
-Preserve local history and accept only when signed-upstream, patch-report, installed-RPM, and Git provenance evidence agree. Never suppress patch drift.
+Preserve local history and accept only when signed-upstream, Fedora patch-report,
+RPM, and Git provenance evidence agree. The sole downstream target is an RPM for
+the current Fedora host and architecture. Never suppress patch drift.
+
+Do not build, inspect, validate, or update any non-RPM downstream artifact,
+another distribution, another OS, or another architecture. The sole exception
+is the signed upstream `.deb` trust chain: verify its repository metadata and
+hash, extract only its data payload, and inspect that extracted payload when
+patch drift requires it. Never produce a downstream `.deb` deliverable.
 
 ## Procedure
 
 1. Read `AGENTS.md`. In a secondary worktree, locate the primary and read its `AGENTS.local.md` when present. Run `lcm search` for the package version and failing feature.
-2. Inventory status, branch, remotes, worktrees, and unrelated dirty state. Local `fix/updates` pushes to `bcdonadio/fix/updates`.
+2. Inventory status, branch, remotes, worktrees, and unrelated dirty state. Local `fix/updates` pushes to `bcdonadio/fix/updates`. Require the build host itself to be Fedora and build only its current supported architecture:
+
+   ```bash
+   . /etc/os-release
+   test "$ID" = fedora
+   case "$(uname -m)" in x86_64|aarch64) ;; *) exit 1 ;; esac
+   command -v rpmbuild rpm dnf >/dev/null
+   ```
 3. Fetch and merge without discarding history:
 
    ```bash
@@ -23,52 +38,50 @@ Preserve local history and accept only when signed-upstream, patch-report, insta
    git merge --no-commit --no-ff origin/main
    ```
 
-4. Resolve semantically. Prefer upstream only when it owns the same behavior or newer bundle contract; retain independent Linux behavior. Search descriptor, hook, test, README, and packaging consumers before deleting a patch.
-5. Run `git diff --check` and focused tests for conflicted, retained-local, and changed-upstream features. Create a clean build identity:
+4. Resolve semantically. Prefer upstream only when it owns the same behavior or newer bundle contract; retain independent Fedora behavior. Search the shared runtime contracts and Fedora RPM consumers before deleting a descriptor, hook, test, resource, or package input. Do not expand the review into format-specific consumers for other targets.
+5. Run `git diff --check` and focused tests for conflicted, retained-local, and changed-upstream Fedora runtime or RPM paths. Do not substitute a broad cross-platform suite or distribution matrix. Create a clean build identity:
 
    ```bash
    git commit -S --signoff --no-edit
    git show --show-signature --no-patch HEAD
    ```
 
-6. Choose the installation path before building. Read `NoNewPrivs` from
-   `/proc/self/status`. When it is `1` and the user explicitly asked to operate
-   through the sandbox, use the sandbox path below. Do not first run
-   `make update-native`, wait for its nested `sudo` to fail, or probe `sudo` and
-   `pkexec`; that creates accidental and repeated authorization attempts.
-
-   Outside that sandbox mode, build and install from signed stable APT metadata:
+6. Build the Fedora RPM from signed stable APT metadata. Keep repository writes
+   unprivileged and invoke the RPM target directly so package-format detection
+   cannot widen the scope:
 
    ```bash
    mkdir -p .tmp/native-update
-   TMPDIR="$PWD/.tmp/native-update" make update-native
-   ```
-
-   In intentional sandbox mode, keep all repository writes unprivileged and
-   stop before the Makefile's `install` target:
-
-   ```bash
-   mkdir -p .tmp/native-update
+   case "$(uname -m)" in
+     x86_64) expected_app_arch=x64; expected_rpm_arch=x86_64 ;;
+     aarch64) expected_app_arch=arm64; expected_rpm_arch=aarch64 ;;
+   esac
+   package_version="$(date -u +%Y.%m.%d.%H%M%S)+$(git rev-parse --short=12 HEAD)"
+   rpm_version="${package_version%%+*}"
+   rpm_release="${package_version#*+}"
+   rpm_path="$PWD/dist/codex-desktop-${rpm_version}-${rpm_release}.${expected_rpm_arch}.rpm"
+   test ! -e "$rpm_path"
    TMPDIR="$PWD/.tmp/native-update" \
-     make build-native-feature-helpers build-app package
+     PACKAGE_VERSION="$package_version" \
+     make build-native-feature-helpers build-app rpm
+   test -f "$rpm_path"
    ```
 
-   Never use a `latest` URL or execute upstream maintainer scripts. If signed
-   stable moved beyond the committed Nix pins, refresh both architectures only
-   with
-   `node scripts/automation/upstream-linux-package-watchdog/watchdog.js --write`,
-   validate the pins, commit, and rebuild so build provenance names the final
-   head.
+   Do not use `make package`, `make install-native`, or `make update-native` in
+   this workflow because they dispatch by distribution and combine unrelated
+   stages. Never use a `latest` URL or execute upstream maintainer scripts. Do
+   not refresh Nix pins or any other format metadata when signed stable moves;
+   the Fedora build resolves and verifies its source independently.
 7. On failure or enabled-feature drift, inspect the newest transaction's `patch-report.json`, `upstream-linux-package.json`, and extracted current bundle. Add a current-shape failing fixture, verify RED, retarget the narrow semantic anchor, verify GREEN, commit with `-S --signoff`, and rerun clean. Require build exit zero, atomic candidate promotion, and:
 
    ```bash
    node scripts/ci/validate-patch-report.js dist-next/rebuild/patch-report.json --profile upstream-build
    ```
 
-   Treat top-level legacy DMG decisions as stale unless the current workflow generated them.
-8. Set `rpm_path` to the absolute path of the exact newly built RPM. Before any
-   privileged action, record its SHA-256 and exact NEVRA, and require both RPM
-   digests to be `OK`:
+8. Use the `rpm_path` bound before the build; do not select an artifact by
+   recency or glob. Canonicalize it, record its SHA-256 and exact NEVRA, require
+   both RPM digests to be `OK`, and confirm the build report identifies Fedora,
+   RPM, and the current architecture:
 
    ```bash
    jq . codex-app/.codex-linux/build-info.json
@@ -77,12 +90,24 @@ Preserve local history and accept only when signed-upstream, patch-report, insta
    [[ "$rpm_sha256" =~ ^[0-9a-f]{64}$ ]]
    rpm_nevra="$(/usr/bin/rpm -qp --qf '%{NAME}-%{EPOCHNUM}:%{VERSION}-%{RELEASE}.%{ARCH}' "$rpm_path")"
    [[ "$rpm_nevra" == codex-desktop-* ]]
+   test "$(/usr/bin/rpm -qp --qf '%{ARCH}' "$rpm_path")" = "$expected_rpm_arch"
    /usr/bin/sha256sum "$rpm_path"
-   /usr/bin/rpm -Kv "$rpm_path"
+   rpm_verification="$(/usr/bin/rpm -Kv "$rpm_path")"
+   printf '%s\n' "$rpm_verification"
+   /usr/bin/grep -Fq 'Header SHA256 digest: OK' <<<"$rpm_verification"
+   /usr/bin/grep -Fq 'Payload SHA256 digest: OK' <<<"$rpm_verification"
+   jq -e --arg arch "$expected_app_arch" \
+     '.linuxTarget.distro.id == "fedora" and
+      .linuxTarget.packageFormat == "rpm" and
+      .linuxTarget.arch == $arch' \
+     codex-app/.codex-linux/build-info.json
    ```
 
-   In ordinary mode, continue with the normal package installation and checks.
-   In intentional sandbox mode, request authorization exactly once. One
+   If the task only requests the artifact, stop the delivery path after artifact
+   verification and continue to the commit/push step. If installation is
+   requested or already authorized, read `NoNewPrivs` from `/proc/self/status`
+   before the privileged action. In intentional sandbox mode, request
+   authorization exactly once. One
    fail-fast transient root unit must copy the user-writable artifact into a
    fresh root-owned directory, recheck and install only that staged copy,
    reload the system manager, and run root-context verification:
@@ -153,7 +178,12 @@ Preserve local history and accept only when signed-upstream, patch-report, insta
 - Never push a rejected or inconclusive candidate.
 - Never disable an enabled feature merely to get green without explicit user choice.
 - Repair source descriptors/hooks/tests, not generated output.
-- Require installed-package and report evidence; `make` exit zero alone is insufficient.
+- Require artifact and report evidence; `make` exit zero alone is insufficient.
+  When installation is in scope, also require exact installed-package evidence.
+- Keep the workflow on the current Fedora architecture and the RPM output. Do
+  not run distro matrices or inspect, build, validate, refresh, or publish a
+  non-RPM downstream artifact, other-distro metadata, or other-architecture
+  metadata. The signed upstream `.deb` trust input remains the sole exception.
 - In intentional sandbox mode, never fall back to `sudo` or `pkexec`, never run
   more than one privileged `systemd-run`, and reject a nonzero unit result,
   unexpected DNF transaction, digest mismatch, or any root-context `rpm -V`

@@ -1,4 +1,4 @@
 interface:
   display_name: "Update ChatGPT"
-  short_description: "Merge upstream and ship a verified native update"
-  default_prompt: "Use $update-chatgpt to merge the latest origin/main, repair native feature drift, build, install, verify, commit, and push the update branch."
+  short_description: "Merge upstream and ship a verified Fedora RPM"
+  default_prompt: "Use $update-chatgpt to merge the latest origin/main, repair Fedora feature drift, build and verify the current-host RPM, install it when requested, commit, and push the update branch."
