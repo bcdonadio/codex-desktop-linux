@@ -13,6 +13,7 @@ const {
   matchesAutomationUpdateEagerToolContract,
 } = require("./eager-update.js");
 const { applyObservableAutomationViewPatch } = require("./observable-view.js");
+const { applyAutomationPluginPipePatch } = require("./plugin-pipe.js");
 
 module.exports = [
   extractedAppPatch({
@@ -32,6 +33,13 @@ module.exports = [
     missingDescription: "dynamic Codex app tools bundle",
     skipDescription: "automation_update eager dynamic tool patch",
     apply: applyAutomationUpdateEagerToolPatch,
+  }),
+  mainBundlePatch({
+    id: "automation-plugin-pipe",
+    phase: "main-bundle",
+    order: 20_112,
+    ciPolicy: "optional",
+    apply: applyAutomationPluginPipePatch,
   }),
   mainBundlePatch({
     id: "observable-automation-view",

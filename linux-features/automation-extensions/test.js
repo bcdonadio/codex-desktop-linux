@@ -36,6 +36,7 @@ test("automation-extensions is disabled by default and owns all optional patches
     [
       "multi-time-rrule",
       "eager-automation-update",
+      "automation-plugin-pipe",
       "observable-automation-view",
       "automation-plugin-enable",
     ],
@@ -101,11 +102,50 @@ test("automation plugin enablement rejects an unexpected enabled-tools key contr
   }
 });
 
+test("adopted app servers receive the Desktop automation pipe explicitly", async () => {
+  const source = [
+    "const process={env:{CODEX_APP_TOOLS_PIPE_PATH:`/tmp/codex-app-tools.sock`},resourcesPath:`/resources`};",
+    "const base={mcpServers:{codex_app:{command:`launch`,env:{BASE:`preserved`}}}};",
+    "function unavailable(reason){return null}",
+    "async function Co({hostConfig:e,resourcesPath:t=process.resourcesPath}){if(!process.env.CODEX_APP_TOOLS_PIPE_PATH)return unavailable(`missing-pipe`);let r=!1,i=base,a=null,{mcpServers:{codex_app:s}}=i,c={...s.env},l=null;return{...s,command:s.command,cwd:`/plugin`,enabled:!1,env:c}}",
+    "globalThis.read=Co;",
+  ].join("");
+  const descriptor = descriptors.find(({ id }) => id === "automation-plugin-pipe");
+
+  assert.ok(descriptor);
+  const patched = descriptor.apply(source);
+  const context = vm.createContext({});
+  vm.runInContext(patched, context);
+
+  const config = await context.read({ hostConfig: { kind: "local" } });
+  assert.equal(config.env.BASE, "preserved");
+  assert.equal(config.env.CODEX_APP_TOOLS_PIPE_PATH, "/tmp/codex-app-tools.sock");
+  assert.equal(descriptor.apply(patched), patched);
+  assert.throws(
+    () => descriptor.apply(patched + "const decoy=`codexLinuxForwardAutomationPipe`;"),
+    /did not match the current bundle exactly once/,
+  );
+});
+
+test("automation pipe forwarding fails closed on drift and incomplete markers", () => {
+  const descriptor = descriptors.find(({ id }) => id === "automation-plugin-pipe");
+
+  assert.ok(descriptor);
+  assert.throws(
+    () => descriptor.apply("const changed=`native app tools transport removed`;"),
+    /did not match the current bundle exactly once/,
+  );
+  assert.throws(
+    () => descriptor.apply("const marker=`codexLinuxForwardAutomationPipe`;"),
+    /did not match the current bundle exactly once/,
+  );
+});
+
 test("automation view returns machine-readable status and absence", async () => {
   const source = automationViewFixture();
 
   const patched = descriptors
-    .filter(({ phase }) => phase === "main-bundle")
+    .filter(({ id }) => id === "observable-automation-view")
     .reduce((current, descriptor) => descriptor.apply(current), source);
   assert.equal(matchesObservableAutomationViewContract(patched), true);
   assert.equal(applyObservableAutomationViewPatch(patched), patched);

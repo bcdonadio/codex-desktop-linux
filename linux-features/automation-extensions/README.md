@@ -6,7 +6,9 @@ returns machine-readable status and absence results from `mode=view`, and
 enables its bundled MCP transport in each local Desktop thread. The
 thread-level enablement keeps scheduled-task tools available when Desktop
 adopts an already-running app server that did not receive launch-time plugin
-overrides.
+overrides. The generated plugin configuration forwards Desktop's native app
+tools pipe explicitly so an adopted app server does not depend on inheriting
+the environment from the later-started GUI process.
 
 Enable it in `linux-features/features.json` only when both product extensions
 are wanted:
