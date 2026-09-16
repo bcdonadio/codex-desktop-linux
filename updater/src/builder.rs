@@ -3,12 +3,14 @@
 use crate::{
     config::{effective_feature_config_path, RuntimeConfig, RuntimePaths},
     install::{self, PackageKind},
+    rollback,
     state::{ArtifactPaths, PersistedState, UpdateStatus},
 };
 use anyhow::{Context, Result};
 use chrono::Utc;
 use std::{
     fs,
+    os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
 };
 use tokio::{
@@ -51,6 +53,7 @@ pub async fn build_update(
         .join("workspaces")
         .join(safe_component(candidate_version));
     if workspace.exists() {
+        rollback::preserve_before_workspace_cleanup(state, paths, &workspace)?;
         fs::remove_dir_all(&workspace)?;
     }
     let bundle = workspace.join("builder");
@@ -58,6 +61,7 @@ pub async fn build_update(
     let dist = workspace.join("dist");
     let logs = workspace.join("logs");
     fs::create_dir_all(&logs)?;
+    let temp = prepare_workspace_temp(&workspace)?;
 
     state.status = UpdateStatus::PreparingWorkspace;
     state.artifact_paths.workspace_dir = Some(workspace.clone());
@@ -75,6 +79,7 @@ pub async fn build_update(
             "CODEX_PATCH_REPORT_JSON",
             workspace.join("reports/patch-report.json"),
         )
+        .env("TMPDIR", &temp)
         .current_dir(&bundle);
     if let Some(config_path) = effective_feature_config_path(config) {
         install.env("CODEX_LINUX_FEATURES_CONFIG", config_path);
@@ -100,6 +105,7 @@ pub async fn build_update(
             "UPDATER_SERVICE_SOURCE",
             bundle.join("packaging/linux/codex-update-manager.service"),
         )
+        .env("TMPDIR", &temp)
         .current_dir(&bundle);
     if let Some(config_path) = effective_feature_config_path(config) {
         package.env("CODEX_LINUX_FEATURES_CONFIG", config_path);
@@ -112,6 +118,7 @@ pub async fn build_update(
         upstream_package_path: Some(upstream_package.to_path_buf()),
         workspace_dir: Some(workspace.clone()),
         package_path: Some(package_path.clone()),
+        package_candidate_sha256: state.upstream_package_sha256.clone(),
         rollback_package_path: state.artifact_paths.rollback_package_path.clone(),
     };
     state.save_updater(&paths.state_file)?;
@@ -119,6 +126,13 @@ pub async fn build_update(
         workspace_dir: workspace,
         package_path,
     })
+}
+
+fn prepare_workspace_temp(workspace: &Path) -> Result<PathBuf> {
+    let temp = workspace.join("tmp");
+    fs::create_dir_all(&temp)?;
+    fs::set_permissions(&temp, fs::Permissions::from_mode(0o700))?;
+    Ok(temp)
 }
 
 fn package_version() -> String {
@@ -317,6 +331,22 @@ mod tests {
     #[test]
     fn workspace_component_never_contains_separators() {
         assert_eq!(safe_component("26.1/../../x"), "26.1_.._.._x");
+    }
+
+    #[test]
+    fn build_temp_directory_is_private_and_workspace_scoped() {
+        let workspace = scratch_dir("workspace-temp");
+        let temp = prepare_workspace_temp(&workspace).expect("workspace temp");
+        assert_eq!(temp, workspace.join("tmp"));
+        assert_eq!(
+            fs::metadata(&temp)
+                .expect("temp metadata")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700
+        );
+        fs::remove_dir_all(workspace).expect("cleanup");
     }
 
     fn scratch_dir(tag: &str) -> PathBuf {
