@@ -43,6 +43,47 @@ function findAutomationPluginConfigAssignments(source) {
   return [...source.matchAll(new RegExp(DESKTOP_MCP_CONFIG_PREFIX.source, "gu"))];
 }
 
+function enclosingAsyncFunction(source, index) {
+  const candidates = [
+    ...source.slice(0, index + 1).matchAll(new RegExp(`async function ${IDENT}\\(`, "gu")),
+  ];
+  for (const candidate of candidates.reverse()) {
+    const parametersOpen = source.indexOf("(", candidate.index);
+    let depth = 0;
+    let parametersClose = -1;
+    for (let cursor = parametersOpen; cursor < source.length; cursor += 1) {
+      if (source[cursor] === "(") depth += 1;
+      if (source[cursor] === ")" && --depth === 0) {
+        parametersClose = cursor;
+        break;
+      }
+    }
+    const open = parametersClose + 1;
+    const close = findMatchingBrace(source, open);
+    if (parametersOpen !== -1 && parametersClose !== -1 && source[open] === "{" && close >= index) {
+      return { open, close };
+    }
+  }
+  return null;
+}
+
+function hasDynamicToolFlatteningContract(source, match, configBody) {
+  const valueMatch = new RegExp(
+    `:\\s*(${IDENT})\\.map\\(\\(\\{name:(${IDENT})\\}\\)=>\\2\\)`,
+    "u",
+  ).exec(configBody);
+  if (valueMatch == null) return false;
+  const owner = enclosingAsyncFunction(source, match.index);
+  if (owner == null) return false;
+  const prefix = source.slice(owner.open + 1, match.index);
+  const escaped = valueMatch[1].replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(
+    `(?:let |const |var |,)${escaped}=${IDENT}\\.flatMap\\((${IDENT})=>` +
+      `\\1\\.type===\`namespace\`\\?\\1\\.tools:\\[\\1\\]\\)`,
+    "u",
+  ).test(prefix);
+}
+
 function hasAutomationPluginEnabledToolsKeyContract(source) {
   return AUTOMATION_PLUGIN_ENABLED_TOOL_KEYS.every((key) => source.includes(key));
 }
@@ -86,7 +127,7 @@ function applyAutomationPluginEnablePatch(source) {
   }
 
   const configBody = source.slice(objectOpen, objectClose + 1);
-  if (!configBody.includes(".flatMap(") || !configBody.includes("type===`namespace`")) {
+  if (!hasDynamicToolFlatteningContract(source, match, configBody)) {
     console.warn(
       "WARN: Desktop MCP config assignment lacks the dynamic tool flattening contract — skipping automation plugin enable patch",
     );

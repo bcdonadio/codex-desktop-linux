@@ -23,12 +23,14 @@ const DELETE_HANDLER = new RegExp(
     "),success:(" + IDENT + ")\\}=await (" + IDENT + ")\\.delete\\(\\{id:\\2\\}\\);",
   "gu",
 );
-const STORE_DELETE_METHOD = new RegExp(
-  `async delete\\(\\{id:(${IDENT})\\}\\)\\{let (${IDENT})=(${IDENT})\\.kr\\(\\1\\),(${IDENT})=\\3\\.Or\\(\\1\\),`,
+const STORE_VIEW_METHOD = new RegExp(
+  `async view\\(\\{id:(${IDENT})\\}\\)\\{return\\{item:(${IDENT})\\.(${IDENT})\\(\\1\\)\\}\\}`,
   "gu",
 );
-const STORE_VIEW_METHOD = new RegExp(
-  `async view\\(\\{id:(${IDENT})\\}\\)\\{return\\{item:(${IDENT})\\.kr\\(\\1\\)\\}\\}`,
+const PRIVATE_STORE_DELETE_METHOD = new RegExp(
+  `async delete\\(\\{id:(${IDENT})\\}\\)\\{return this\\.#(${IDENT})\\(\\1,null\\)\\}` +
+    `async#\\2\\((${IDENT}),(${IDENT})\\)\\{[^{}]*?let (${IDENT})=(${IDENT})\\.(${IDENT})\\(\\3\\),` +
+    `(${IDENT})=\\6\\.(${IDENT})\\(\\3\\),`,
   "gu",
 );
 const CLASS_OPEN = new RegExp(
@@ -105,12 +107,13 @@ function enclosingClass(source, index) {
 
 function classDelegatesToHandler(classContract, handlerName) {
   const escapedHandlerName = handlerName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const delegation = new RegExp(
-    `executeUpdateTool\\((${IDENT})\\)\\{return \\1\\.hostId===\`local\`\\?` +
-      `${escapedHandlerName}\\(this,\\1,`,
+  const privateDelegation = new RegExp(
+    `executeUpdateTool\\((${IDENT})\\)\\{return this\\.#(${IDENT})\\(\\1,this\\)\\}` +
+      `[\\s\\S]*?#\\2\\((${IDENT}),(${IDENT})\\)\\{return \\3\\.hostId===\`local\`\\?` +
+      `${escapedHandlerName}\\(\\4,\\3,`,
     "u",
   );
-  return delegation.test(classContract.source);
+  return privateDelegation.test(classContract.source);
 }
 
 function linkedStoreContract(source, storeMatches, handlerName) {
@@ -160,14 +163,14 @@ function observableViewBranch(argumentValue, host, outputFunction) {
     `}/*${OBSERVABLE_AUTOMATION_VIEW_MARKER}*/`;
 }
 
-function observableViewMethod(storeId, storeModule) {
-  return `async view({id:${storeId}}){return{item:${storeModule}.kr(${storeId})}}`;
+function observableViewMethod(storeId, storeModule, readMethod = "kr") {
+  return `async view({id:${storeId}}){return{item:${storeModule}.${readMethod}(${storeId})}}`;
 }
 
 function currentAutomationViewContract(source) {
   const outputMatches = [...source.matchAll(new RegExp(OUTPUT_HELPER.source, "gu"))];
   const handlerMatches = [...source.matchAll(new RegExp(DELETE_HANDLER.source, "gu"))];
-  const storeMatches = [...source.matchAll(new RegExp(STORE_DELETE_METHOD.source, "gu"))];
+  const storeMatches = [...source.matchAll(new RegExp(PRIVATE_STORE_DELETE_METHOD.source, "gu"))];
   if (outputMatches.length !== 1 || handlerMatches.length !== 1 || storeMatches.length === 0) {
     return null;
   }
@@ -215,7 +218,11 @@ function patchedAutomationViewContract(source) {
   if (!occursExactlyOnce(handler.source, expectedBranch)) return null;
   const linkedStore = linkedStoreContract(source, storeMatches, handler.name);
   if (linkedStore == null) return null;
-  if (linkedStore.store[0] !== observableViewMethod(linkedStore.store[1], linkedStore.store[2])) {
+  if (linkedStore.store[0] !== observableViewMethod(
+    linkedStore.store[1],
+    linkedStore.store[2],
+    linkedStore.store[3],
+  )) {
     return null;
   }
   return { output, handler, linkedStore };
@@ -244,9 +251,10 @@ function applyObservableAutomationViewPatch(source) {
   const host = contract.handler[6];
   const viewBranch = observableViewBranch(argumentValue, host, outputFunction);
 
-  const storeId = contract.linkedStore.store[1];
-  const storeModule = contract.linkedStore.store[3];
-  const viewMethod = observableViewMethod(storeId, storeModule);
+  const storeId = contract.linkedStore.store[3];
+  const storeModule = contract.linkedStore.store[6];
+  const readMethod = contract.linkedStore.store[7];
+  const viewMethod = observableViewMethod(storeId, storeModule, readMethod);
 
   const patched = source
     .replace(outputNeedle, outputReplacement)

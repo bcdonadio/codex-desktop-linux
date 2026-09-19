@@ -12,7 +12,7 @@ the application:
 ```
 
 The feature changes only the sidebar footer gate in the signed upstream
-`app-primary-*.js` webview asset. It replaces the Statsig gate lookup for
+`app-initial-*.js` webview asset. It replaces the Statsig gate lookup for
 `2919110489.enabled` with a forced UI-side true boolean while preserving the
 upstream realtime Voice capability predicate and non-null `codex` start
 callback. It does not change persisted or global Statsig state, grant backend
@@ -26,8 +26,8 @@ idempotent.
 
 The gate helper's minified name may change between upstream builds. Matching
 uses the stable gate key and complete footer contract. The regression fixture
-`fixtures/footer-26.901.41600.js` comes from the signed amd64 package (SHA-256
-`15cf422a77e8f28a7553d3180b8c72784a994438a141784c82d72cde93efca77`).
+`fixtures/footer-26.915.31945.js` comes from the signed amd64 package (SHA-256
+`d27a9c02919cfe484dcc5f34584b9ea9fd0d7a65c69dcc872b5bdcfa0efb5983`).
 
 Run the feature tests with:
 

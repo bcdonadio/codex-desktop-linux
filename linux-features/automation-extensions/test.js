@@ -24,7 +24,7 @@ function automationViewFixture(hostClass = null) {
     "function Oz(e){return{contentItems:[{type:`inputText`,text:e==null?`Rendered automation card in the app.`:e.mode===`create`?`Created automation in the app.`:e.mode===`update`?`Updated automation in the app.`:e.deleteStatus===`not_found`?`Automation already does not exist in the app.`:`Deleted automation in the app.`},...e==null?[]:[{type:`inputText`,text:JSON.stringify(e)}]],success:!0}}",
     "function Mz(e){return{response:{contentItems:[{type:`inputText`,text:e}],success:!1}}}",
     "async function jz(e,{threadId:t,argumentsValue:n},r){let i={success:!0,data:n};if(!i.success)return Mz(`invalid`);let a=i.data;if(a.mode===`delete`){let t=a.id??``;try{let{item:n,status:r,success:i}=await e.delete({id:t});return{response:i?Oz({automationId:t,mode:`delete`,deleteStatus:r===`not_found`?`not_found`:`deleted`,snapshot:n==null?null:{kind:n.kind,name:n.name,rrule:n.rrule}}):Mz(`failed`).response,mutation:{mode:`delete`,id:t,item:n,status:r}}}catch(e){return{...Mz(`failed`),mutation:{mode:`delete`,id:t,item:null,status:`host_error`}}}}return{response:Oz()}}",
-    hostClass ?? "var Fz=class{async delete({id:e}){let t=api.kr(e),r=api.Or(e),i=r===`deleted`||r===`not_found`;return{item:t,success:i,status:r}}executeUpdateTool(e){return e.hostId===`local`?jz(this,e,e=>null):null}};",
+    hostClass ?? "var Fz=class{async delete({id:e}){return this.#n(e,null)}async#n(e,t){t?.assertCurrent();let r=api.kr(e),i=api.Or(e),a=i===`deleted`||i===`not_found`;return{item:r,success:a,status:i}}executeUpdateTool(e){return this.#r(e,this)}#r(e,t){return e.hostId===`local`?jz(t,e,e=>null):null}};",
     "globalThis.run=async id=>(await jz(new Fz,{threadId:`thread`,argumentsValue:{mode:`view`,id}},()=>null)).response;",
   ].join("");
 }
@@ -59,7 +59,7 @@ test("local Desktop threads enable the plugin transport that owns automation_upd
     "const pluginKey=`plugins.codex-app-tools@openai-bundled.mcp_servers.codex_app.enabled_tools`,legacyKey=`mcp_servers.codex_app.enabled_tools`;",
     "function key(version){return version?pluginKey:legacyKey}",
     "function catalog(){return[automation].map(e=>({type:`function`,...e,...E&&(!YBl.has(e.name)||BBl.includes(e.name))?{deferLoading:!0}:{}}))}",
-    "async function build(local,usePlugin){let result={config:{unrelated:7}},n=catalog(),client={getAppServerVersion:()=>usePlugin},inputs={usesDesktopMcp:local};inputs.usesDesktopMcp&&(result.config={...result.config,[key(client.getAppServerVersion())]:n.flatMap(e=>e.type===`namespace`?e.tools.map(({name:e})=>e):[e.name])});return result.config}",
+    "async function build(local,usePlugin){let result={config:{unrelated:7}},n=catalog(),tools=n.flatMap(e=>e.type===`namespace`?e.tools:[e]),client={getAppServerVersion:()=>usePlugin},inputs={usesDesktopMcp:local};inputs.usesDesktopMcp&&(result.config={...result.config,[key(client.getAppServerVersion())]:tools.map(({name:e})=>e)});return result.config}",
     "globalThis.build=build;",
   ].join(";");
 
@@ -90,9 +90,25 @@ test("automation plugin enablement rejects an unexpected enabled-tools key contr
   const source = [
     "const pluginKey=`plugins.codex-app-tools@openai-bundled.mcp_servers.codex_app.tools`,legacyKey=`mcp_servers.codex_app.tools`;",
     "function key(version){return version?pluginKey:legacyKey}",
-    "async function build(local){let result={config:{}},n=[],client={getAppServerVersion:()=>!0},inputs={usesDesktopMcp:local};inputs.usesDesktopMcp&&(result.config={...result.config,[key(client.getAppServerVersion())]:n.flatMap(e=>e.type===`namespace`?e.tools.map(({name:e})=>e):[e.name])});return result.config}",
+    "async function build(local){let result={config:{}},n=[],tools=n.flatMap(e=>e.type===`namespace`?e.tools:[e]),client={getAppServerVersion:()=>!0},inputs={usesDesktopMcp:local};inputs.usesDesktopMcp&&(result.config={...result.config,[key(client.getAppServerVersion())]:tools.map(({name:e})=>e)});return result.config}",
   ].join(";");
 
+  const originalWarn = console.warn;
+  console.warn = () => {};
+  try {
+    assert.equal(applyAutomationPluginEnablePatch(source), source);
+  } finally {
+    console.warn = originalWarn;
+  }
+});
+
+test("automation plugin enablement rejects flattened tools from another function", () => {
+  const source = [
+    "const pluginKey=`plugins.codex-app-tools@openai-bundled.mcp_servers.codex_app.enabled_tools`,legacyKey=`mcp_servers.codex_app.enabled_tools`;",
+    "function key(version){return version?pluginKey:legacyKey}",
+    "async function unrelated(){let tools=raw.flatMap(e=>e.type===`namespace`?e.tools:[e]);return tools}",
+    "async function build(local){let result={config:{}},tools=[{name:`automation_update`}],client={getAppServerVersion:()=>!0},inputs={usesDesktopMcp:local};inputs.usesDesktopMcp&&(result.config={...result.config,[key(client.getAppServerVersion())]:tools.map(({name:e})=>e)});return result.config}",
+  ].join(";");
   const originalWarn = console.warn;
   console.warn = () => {};
   try {
@@ -220,9 +236,20 @@ test("automation view patch fails closed on drift and incomplete markers", () =>
 
 test("automation view patch rejects an unrelated matching store class", () => {
   const mismatchedHost = automationViewFixture(
-    "var ActualHost=class{executeUpdateTool(e){return e.hostId===`local`?jz(this,e,e=>null):null}};" +
-      "var Decoy=class{async delete({id:e}){let t=api.kr(e),r=api.Or(e),i=r===`deleted`||r===`not_found`;return{item:t,success:i,status:r}}};" +
+    "var ActualHost=class{executeUpdateTool(e){return this.#r(e,this)}#r(e,t){return e.hostId===`local`?jz(t,e,e=>null):null}};" +
+      "var Decoy=class{async delete({id:e}){return this.#n(e,null)}async#n(e,t){let r=api.kr(e),i=api.Or(e),a=i===`deleted`||i===`not_found`;return{item:r,success:a,status:i}}};" +
       "var Fz=ActualHost;",
+  );
+  assert.throws(
+    () => applyObservableAutomationViewPatch(mismatchedHost),
+    /did not match the current or patched bundle/,
+  );
+});
+
+test("automation view patch rejects a private store routed to a different handler", () => {
+  const mismatchedHost = automationViewFixture().replace(
+    "return e.hostId===`local`?jz(t,e,e=>null):null",
+    "return e.hostId===`local`?unrelated(t,e,e=>null):null",
   );
   assert.throws(
     () => applyObservableAutomationViewPatch(mismatchedHost),

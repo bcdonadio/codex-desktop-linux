@@ -76,7 +76,7 @@ test("enabled feature loads one optional sidebar-entrypoint descriptor", () => {
   });
 });
 
-test("manifest has no dependencies, resources, or hooks and descriptor targets only app-primary assets", () => {
+test("manifest has no dependencies, resources, or hooks and descriptor targets only app-initial assets", () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, "feature.json"), "utf8"));
   assert.equal(manifest.id, "realtime-voice-sidebar");
   assert.equal(manifest.defaultEnabled, false);
@@ -87,9 +87,9 @@ test("manifest has no dependencies, resources, or hooks and descriptor targets o
     descriptors.map((descriptor) => [descriptor.id, descriptor.phase, descriptor.ciPolicy]),
     [["sidebar-entrypoint", "webview-asset", "optional"]],
   );
-  assert.equal(descriptors[0].pattern.test("app-primary-ABC123.js"), true);
+  assert.equal(descriptors[0].pattern.test("app-primary-ABC123.js"), false);
   assert.equal(descriptors[0].pattern.test("app-primary-foo.bar.js"), false);
-  assert.equal(descriptors[0].pattern.test("app-initial-ABC123.js"), false);
+  assert.equal(descriptors[0].pattern.test("app-initial-ABC123.js"), true);
   assert.equal(descriptors[0].pattern.test("settings-page-ABC123.js"), false);
 });
 
@@ -121,7 +121,7 @@ test("patch is idempotent and preserves unrelated Statsig calls", () => {
 });
 
 test("current signed footer and renamed helpers preserve the semantic gate contract", () => {
-  const current = fs.readFileSync(path.join(__dirname, "fixtures/footer-26.901.41600.js"), "utf8");
+  const current = fs.readFileSync(path.join(__dirname, "fixtures/footer-26.915.31945.js"), "utf8");
   for (const source of [current, footerFixture({ gateAlias: "Qzf" }), footerFixture({ gateAlias: "$gate" })]) {
     const result = captureWarnings(() => applyRealtimeVoiceSidebarPatch(source));
     assert.deepEqual(result.warnings, []);
@@ -200,8 +200,8 @@ test("enabled descriptor patches a temporary extracted app and records the featu
     withTempDir((extractedDir) => {
       const assetsDir = path.join(extractedDir, "webview", "assets");
       fs.mkdirSync(assetsDir, { recursive: true });
-      const target = path.join(assetsDir, "app-primary-ABC123.js");
-      const untouched = path.join(assetsDir, "app-initial-ABC123.js");
+      const target = path.join(assetsDir, "app-initial-ABC123.js");
+      const untouched = path.join(assetsDir, "app-primary-ABC123.js");
       fs.writeFileSync(target, footerFixture());
       fs.writeFileSync(untouched, footerFixture());
 
