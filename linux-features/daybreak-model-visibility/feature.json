@@ -1,0 +1,9 @@
+{
+  "id": "daybreak-model-visibility",
+  "title": "Daybreak Model Visibility",
+  "description": "Opt-in compatibility for the visible standalone Daybreak Blue model reported by the signed-in account's model catalog.",
+  "defaultEnabled": false,
+  "entrypoints": {
+    "patchDescriptors": "./patch.js"
+  }
+}
