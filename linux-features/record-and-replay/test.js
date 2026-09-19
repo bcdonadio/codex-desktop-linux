@@ -28,11 +28,27 @@ const {
 } = require("./patch.js");
 const {
   applyChronicleSkysightMainBridgePatch,
-  chronicleSkysightHelperSource: recordReplayChronicleHelperSource,
   recordReplayRuntimeHelperSource,
 } = require("../chronicle-skysight/patch.js");
 
 const featureDir = __dirname;
+
+function currentComposerTranscriptFixture() {
+  return "async function send(){let p=`Create an image of a neon cabin`,c={setTranscript(){}},a={dictationSessionId:`session-1`,performance:{mark(){}}},i={action:`send`,recovery:null},s={onRecoveryChange:null,onTranscriptRetry:async()=>{},onTranscriptSend:async(t,e)=>globalThis.events.push([`send`,t,e]),onTranscriptInsert:async(t,e)=>globalThis.events.push([`insert`,t,e]),onTranscriptCancel:()=>globalThis.events.push([`cancel`])},te={current:i};if(p.length>0){c==null?une.getInstance().dispatchMessage(`global-dictation-record-history-item`,{text:p}):c.setTranscript(p),a.performance.mark(`transcript_dispatched`);let e=c==null?void 0:a.dictationSessionId;i.recovery!=null&&s.onRecoveryChange!=null?await s.onTranscriptRetry?.(p,e):i.action===`send`?await s.onTranscriptSend(p,e):(await s.onTranscriptInsert(p,e),te.current===i&&te.current.action===`send`&&await s.onTranscriptSend(``,e))}else s.onTranscriptCancel?.()}";
+}
+
+function currentChronicleControllerFixture() {
+  return [
+    "var Base={Tf:class{}};",
+    "var Hse=class{dependencies;pendingStatus=null;constructor(e){this.dependencies=e}status(){return this.pendingStatus??=this.request(`skysightStatus`).finally(()=>{this.pendingStatus=null}),this.pendingStatus}enable(){return this.request(`skysightStart`)}pause(e){return this.requestPauseResume(`skysightPause`,e)}resume(){return this.requestPauseResume(`skysightResume`)}getSettings(){return this.dependencies.request({method:`skysightGetSettings`,params:{}})}updateSettings(e){return this.dependencies.request({method:`skysightUpdateSettings`,params:{settings:e}})}clearHistory(e,t){return this.dependencies.request({method:`skysightClearHistory`,params:{interval:t,scope:e}})}requestPauseResume(e,t){return this.dependencies.request({method:e,params:t==null?{}:{duration:t}})}request(e){return this.dependencies.request({method:e,params:{}})}async stopRecorder(){let e=await this.request(`skysightStop`);return e}};",
+    "var $O=class extends Base.Tf{constructor(e,t,n,r,i,a){super(),this.appServerConnection=e,this.getController=t,this.isEligible=n,this.loadApplications=r,this.loadApplicationsByBundleIdentifier=i,this.history=a}async getState(){return this.getController().status()}async setEnabled(e){return e?this.appServerConnection.enableSkysightChronicle():this.getController().stopRecorder()}async pause(){return this.getController().pause()}async resume(){return this.appServerConnection.resumeChronicle()}async getSettings(){return this.getController().getSettings()}async updateSettings(e){return this.getController().updateSettings(e)}async listApplications(){return this.isEligible(),this.loadApplications()}async resolveApplications(e){return this.isEligible(),this.loadApplicationsByBundleIdentifier(e)}async listHistory(){return this.isEligible(),this.history.list()}async listHistorySuggestions(){return this.isEligible(),this.history.listSuggestions()}async listHistorySummaryIntervals({sinceMs:e}){return this.isEligible(),this.history.listSummaryIntervals(e)}async clearHistory(e,t){await this.getController().clearHistory(e,t)}};",
+    "function Cr(){return{skysight:false}}let N=process.platform===`darwin`,xe;var Ce={requestComputerUseWorker(){}},Xe={reconcileComputerHistoryPluginInstallation(){}},U={broadcastQueryCacheInvalidation(){}},V={codexHome:`/tmp`};async function archive(e){return e}",
+    "N&&(xe=new Hse({request:Ce.requestComputerUseWorker,reconcileComputerHistoryPluginInstallation:e=>{Xe.reconcileComputerHistoryPluginInstallation(e)},archiveLegacyChronicleSkill:async()=>{await archive({codexHome:V.codexHome,reason:`skysight_gate_enabled`})&&U.broadcastQueryCacheInvalidation([`skills`])}}));",
+    "var appOptions={getSkysightRecorderController:()=>Cr().skysight?xe:null,artifactSessionHostLifecycle:null};",
+    "var Host=class{constructor(){this.options=appOptions;let i={};this.services={chronicle:process.platform===`darwin`&&this.options.getSkysightRecorderController!=null?new $O(i,this.options.getSkysightRecorderController,()=>Cr().skysight,()=>[],()=>[],{}):void 0}}};",
+    'var bridge={"get-global-state":async({key:e})=>null};',
+  ].join("");
+}
 
 function captureWarns(fn) {
   const warnings = [];
@@ -172,9 +188,7 @@ test("record-and-replay dictation descriptor tracks moved upstream composer bund
   const descriptor = descriptors.find((patch) => patch.id === "record-replay-dictation-transcript");
   assert.ok(descriptor);
   assert.equal(descriptor.pattern.test("app-initial-C-fROkKo.js"), true);
-  assert.equal(descriptor.assetMatch(
-    "let l=c.trim();l.length>0?(o==null?_m.getInstance().dispatchMessage(`global-dictation-record-history-item`,{text:l}):o.setTranscript(l),r.performance.mark(`transcript_dispatched`),t.action===`send`?await a.onTranscriptSend(l):await a.onTranscriptInsert(l)):a.onTranscriptCancel?.()",
-  ), true);
+  assert.equal(descriptor.assetMatch(currentComposerTranscriptFixture()), true);
   assert.equal(descriptor.pattern.test("app-initial~app-main~onboarding-page-BUwCKIcU.js"), false);
   assert.equal(descriptor.pattern.test("use-dictation-BUwCKIcU.js"), false);
   assert.equal(descriptor.pattern.test("use-dictation-hotkey-BUwCKIcU.js"), false);
@@ -190,11 +204,7 @@ test("record-and-replay global dictation descriptor tracks floating dictation bu
 
 test("record-and-replay bridge patch is idempotent and uses execFile", () => {
   assert.equal(descriptors.length, 5);
-  const source = [
-    "const cp=require(\"node:child_process\"),fs=require(\"node:fs\"),path=require(\"node:path\");",
-    "var tray={getChronicleSidecarControlState:()=>tt().skysight?$9:Se.appServerConnectionRegistry.getMaybeConnection(`local`)?.getChronicleSidecarControlState()??$9,toggleChronicleSidecar:async()=>{if(tt().skysight)return $9;let e=Se.appServerConnectionRegistry.getMaybeConnection(V);return e==null?$9:e.getChronicleSidecarControlState().running?e.pauseChronicleSidecar():e.resumeChronicleSidecar()}};",
-    "var bridge={\"get-global-state\":async({key:e})=>null};",
-  ].join("");
+  const source = currentChronicleControllerFixture();
 
   const chroniclePatched = applyChronicleSkysightMainBridgePatch(source);
   const patched = applyRecordReplayMainBridgePatch(chroniclePatched);
@@ -207,8 +217,10 @@ test("record-and-replay bridge patch is idempotent and uses execFile", () => {
   assert.match(patched, /chronicleOcrAvailable/);
   assert.match(patched, /chronicleOcrStatus/);
   assert.match(patched, /chronicleOcrBackend/);
-  assert.match(patched, /"getChronicleSidecarControlState":async/);
-  assert.match(patched, /"toggleChronicleSidecar":async/);
+  assert.match(patched, /codexLinuxChronicleRequest/);
+  assert.match(patched, /request:process\.platform===`linux`\?codexLinuxChronicleRequest:/);
+  assert.match(patched, /chronicle:process\.platform===`darwin`/);
+  assert.doesNotMatch(patched, /chronicle:\(process\.platform===`darwin`\|\|process\.platform===`linux`\)/);
   assert.match(patched, /codexLinuxChronicleControlStateFromSkysight/);
   assert.match(patched, /codexLinuxChronicleEnsureSidecarRunning/);
   assert.match(patched, /"chronicle-permissions":async\(\)=>\{let e=await codexLinuxChronicleSidecarControlStateAsync\(\)/);
@@ -258,11 +270,7 @@ test("record-and-replay bridge patch is idempotent and uses execFile", () => {
 });
 
 test("record-and-replay rejects incomplete current bridge variants byte-identically", () => {
-  const source = [
-    'const cp=require("node:child_process"),fs=require("node:fs"),path=require("node:path");',
-    "var tray={getChronicleSidecarControlState:()=>tt().skysight?$9:Se.appServerConnectionRegistry.getMaybeConnection(`local`)?.getChronicleSidecarControlState()??$9,toggleChronicleSidecar:async()=>{if(tt().skysight)return $9;let e=Se.appServerConnectionRegistry.getMaybeConnection(V);return e==null?$9:e.getChronicleSidecarControlState().running?e.pauseChronicleSidecar():e.resumeChronicleSidecar()}};",
-    'var bridge={"get-global-state":async({key:e})=>null};',
-  ].join("");
+  const source = currentChronicleControllerFixture();
   const chroniclePatched = applyChronicleSkysightMainBridgePatch(source);
   const patched = applyRecordReplayMainBridgePatch(chroniclePatched);
   const moduleExpressions = {
@@ -304,14 +312,8 @@ test("record-and-replay Chronicle helpers map Skysight status into upstream side
     fsVar: "fs",
     pathVar: "path",
   });
-  const calls = [];
   const context = {
-    childProcess: {
-      execFileSync(_bin, args) {
-        calls.push(args);
-        return JSON.stringify({ state: "running", is_running: true, paused: false });
-      },
-    },
+    childProcess: {},
     fs,
     path,
     process: {
@@ -323,8 +325,10 @@ test("record-and-replay Chronicle helpers map Skysight status into upstream side
     String,
   };
 
-  const state = vm.runInNewContext(`${helperSource};codexLinuxChronicleSidecarControlState()`, context);
-  assert.deepEqual(JSON.parse(JSON.stringify(calls)), [["skysight", "status"]]);
+  const state = vm.runInNewContext(
+    `${helperSource};codexLinuxChronicleControlStateFromSkysight({ok:true,json:{state:"running",is_running:true,paused:false}})`,
+    context,
+  );
   assert.equal(state.enabled, true);
   assert.equal(state.running, true);
   assert.equal(state.state, "running");
@@ -511,11 +515,7 @@ test("record-and-replay Chronicle setup probe does not churn start when summary 
 });
 
 test("record-and-replay generic Skysight start can pass summary agent true or false", async () => {
-  const source = [
-    "const cp=require(\"node:child_process\"),fs=require(\"node:fs\"),path=require(\"node:path\");",
-    "var tray={getChronicleSidecarControlState:()=>tt().skysight?$9:Se.appServerConnectionRegistry.getMaybeConnection(`local`)?.getChronicleSidecarControlState()??$9,toggleChronicleSidecar:async()=>{if(tt().skysight)return $9;let e=Se.appServerConnectionRegistry.getMaybeConnection(V);return e==null?$9:e.getChronicleSidecarControlState().running?e.pauseChronicleSidecar():e.resumeChronicleSidecar()}};",
-    "var bridge={\"get-global-state\":async({key:e})=>null};",
-  ].join("");
+  const source = currentChronicleControllerFixture();
   const patched = applyChronicleSkysightMainBridgePatch(source);
   assert.match(
     patched,
@@ -527,29 +527,21 @@ test("record-and-replay generic Skysight start can pass summary agent true or fa
   assert.match(patched, /t===!1&&n\.push\("--summary-agent","disabled"\)/);
 });
 
-test("record-and-replay patch wires Linux Chronicle tray controls to Skysight", () => {
-  const source = [
-    'const cp=require("node:child_process"),fs=require("node:fs"),path=require("node:path");',
-    "var tray={getChronicleSidecarControlState:()=>tt().skysight?$9:Se.appServerConnectionRegistry.getMaybeConnection(`local`)?.getChronicleSidecarControlState()??$9,toggleChronicleSidecar:async()=>{if(tt().skysight)return $9;let e=Se.appServerConnectionRegistry.getMaybeConnection(V);return e==null?$9:e.getChronicleSidecarControlState().running?e.pauseChronicleSidecar():e.resumeChronicleSidecar()}};",
-    'var bridge={"get-global-state":async({key:e})=>null};',
-  ].join("");
+test("record-and-replay patch connects to the current Chronicle controller surface", () => {
+  const source = currentChronicleControllerFixture();
   const patched = applyChronicleSkysightMainBridgePatch(source);
 
   assert.notEqual(patched, source);
   assert.equal(applyChronicleSkysightMainBridgePatch(patched), patched);
-  assert.match(patched, /getChronicleSidecarControlState:\(\)=>process\.platform===`linux`\?codexLinuxChronicleSidecarControlState\(\)/);
-  assert.match(patched, /toggleChronicleSidecar:async\(\)=>\{if\(process\.platform===`linux`\)return codexLinuxChronicleToggleSidecar\(\)/);
-  assert.match(patched, /if\(tt\(\)\.skysight\)return \$9/);
-  assert.match(patched, /e\.pauseChronicleSidecar\(\):e\.resumeChronicleSidecar\(\)/);
+  assert.match(patched, /\(N\|\|process\.platform===`linux`\)&&\(xe=new Hse/);
+  assert.match(patched, /getSkysightRecorderController:\(\)=>process\.platform===`linux`\|\|Cr\(\)\.skysight\?xe:null/);
+  assert.match(patched, /chronicle:process\.platform===`darwin`/);
+  assert.doesNotMatch(patched, /chronicle:\(process\.platform===`darwin`\|\|process\.platform===`linux`\)/);
 });
 
-test("record-and-replay rejects partial current Chronicle tray drift byte-identically", () => {
-  const source = [
-    'const cp=require("node:child_process"),fs=require("node:fs"),path=require("node:path");',
-    "var tray={getChronicleSidecarControlState:()=>tt().skysight?$9:Se.appServerConnectionRegistry.getMaybeConnection(`local`)?.getChronicleSidecarControlState()??$9,toggleChronicleSidecar:async()=>{if(tt().skysight)return $9;let e=Se.appServerConnectionRegistry.getMaybeConnection(V);return e==null?$9:e.getChronicleSidecarControlState().running?e.stopChronicleSidecar():e.resumeChronicleSidecar()}};",
-    'var bridge={"get-global-state":async({key:e})=>null};',
-  ].join("");
-
+test("record-and-replay rejects ambiguous Chronicle controller contracts byte-identically", () => {
+  const current = currentChronicleControllerFixture();
+  const source = current + current;
   assert.equal(applyChronicleSkysightMainBridgePatch(source), source);
 });
 
@@ -628,26 +620,69 @@ test("record-and-replay HUD patch is idempotent and appends runtime UI", () => {
   assert.doesNotMatch(patched, /finalizeVoiceCapture/);
 });
 
-test("record-and-replay rejects the retired non-persistent composer contract", () => {
-  const source =
-    "function send(e,n){let i=`Create an image of a neon cabin`;i.length>0&&(j.getInstance().dispatchMessage(`global-dictation-record-history-item`,{text:i}),e===`send`?n.onTranscriptSend(i):n.onTranscriptInsert(i))}";
-  const patched = applyRecordReplayDictationTranscriptPatch(source);
-
-  assert.equal(patched, source);
+test("record-and-replay rejects retired composer transcript contracts", () => {
+  const sources = [
+    "function send(e,n){let i=`Create an image of a neon cabin`;i.length>0&&(j.getInstance().dispatchMessage(`global-dictation-record-history-item`,{text:i}),e===`send`?n.onTranscriptSend(i):n.onTranscriptInsert(i))}",
+    "async function send(){let l=c.trim();l.length>0?(o==null?_m.getInstance().dispatchMessage(`global-dictation-record-history-item`,{text:l}):o.setTranscript(l),r.performance.mark(`transcript_dispatched`),t.action===`send`?await a.onTranscriptSend(l):(await a.onTranscriptInsert(l),U.current===t&&U.current.action===`send`&&await a.onTranscriptSend(``))):a.onTranscriptCancel?.()}",
+  ];
+  for (const source of sources) {
+    assert.equal(applyRecordReplayDictationTranscriptPatch(source), source);
+  }
 });
 
-test("record-and-replay matches the official 26.831.20005 compiled composer transcript", () => {
-  const source =
-    "let l=c.trim();l.length>0?(o==null?_m.getInstance().dispatchMessage(`global-dictation-record-history-item`,{text:l}):o.setTranscript(l),r.performance.mark(`transcript_dispatched`),t.action===`send`?await a.onTranscriptSend(l):await a.onTranscriptInsert(l)):a.onTranscriptCancel?.()";
+test("record-and-replay matches and executes the current composer transcript block", async () => {
+  const source = currentComposerTranscriptFixture();
   const patched = applyRecordReplayDictationTranscriptPatch(source);
 
   assert.notEqual(patched, source);
   assert.equal(applyRecordReplayDictationTranscriptPatch(patched), patched);
-  assert.match(patched, /codexLinuxRecordReplayCaptureTranscript\?\.\(l,t\.action\)/);
-  assert.match(patched, /o==null\?_m\.getInstance\(\)\.dispatchMessage/);
-  assert.match(patched, /o\.setTranscript\(l\)/);
-  assert.match(patched, /t\.action===`send`\?await a\.onTranscriptSend\(l\):await a\.onTranscriptInsert\(l\)/);
-  assert.match(patched, /:a\.onTranscriptCancel\?\.\(\)/);
+  assert.match(patched, /codexLinuxRecordReplayCaptureTranscript\?\.\(p,i\.action\)/);
+  assert.match(patched, /let e=c==null\?void 0:a\.dictationSessionId/);
+  assert.match(patched, /onTranscriptSend\(p,e\)/);
+  assert.match(patched, /onTranscriptInsert\(p,e\)/);
+
+  const context = {
+    Date,
+    globalThis: {
+      events: [],
+      codexLinuxRecordReplayCaptureTranscript: (transcript, action) => {
+        context.globalThis.events.push(["capture", transcript, action]);
+        return true;
+      },
+    },
+    une: { getInstance: () => ({ dispatchMessage() {} }) },
+  };
+  vm.runInNewContext(`${patched};globalThis.run=send`, context);
+  await context.globalThis.run();
+  assert.deepEqual(JSON.parse(JSON.stringify(context.globalThis.events)), [
+    ["capture", "Create an image of a neon cabin", "send"],
+    ["send", "Create an image of a neon cabin", "session-1"],
+  ]);
+});
+
+test("record-and-replay transcript repair rejects duplicate, partial, mixed, and ambiguous owners", () => {
+  const current = currentComposerTranscriptFixture();
+  const patched = applyRecordReplayDictationTranscriptPatch(current);
+  const partial = patched.replace(
+    "onTranscriptInsert(p,e)",
+    "onTranscriptInsert(p)",
+  );
+  const variants = {
+    "duplicate current": current + current,
+    "duplicate patched": patched + patched,
+    mixed: current + patched,
+    partial,
+    ambiguous: current.replace("let e=c==null?void 0:a.dictationSessionId", "let e=c==null?void 0:other.dictationSessionId"),
+  };
+  const descriptor = descriptors.find((patch) => patch.id === "record-replay-dictation-transcript");
+
+  assert.ok(descriptor);
+  assert.equal(descriptor.assetMatch(current), true);
+  assert.equal(descriptor.assetMatch(patched), true);
+  for (const [name, source] of Object.entries(variants)) {
+    assert.equal(descriptor.assetMatch(source), false, name);
+    assert.equal(applyRecordReplayDictationTranscriptPatch(source), source, name);
+  }
 });
 
 test("record-and-replay rejects the retired pre-analytics global dictation contract", () => {
@@ -680,8 +715,7 @@ test("record-and-replay current transcript drift remains byte-identical", () => 
 });
 
 test("record-and-replay generated transcript runtimes are syntactically valid", () => {
-  const source =
-    "async function current(){let l=c.trim();l.length>0?(o==null?_m.getInstance().dispatchMessage(`global-dictation-record-history-item`,{text:l}):o.setTranscript(l),r.performance.mark(`transcript_dispatched`),t.action===`send`?await a.onTranscriptSend(l):await a.onTranscriptInsert(l)):a.onTranscriptCancel?.()}";
+  const source = currentComposerTranscriptFixture();
   const globalDictationSource =
     "async function U(e,t,n=null){let r=Date.now(),i=n==null?await I(e.audio):await W(n,e.audio);e.analytics.performance.mark(`final_received`);let a=await E({transcript:i,cleanupEnabled:t});J===e&&(J=null),a.trim().length>0&&e.recordingPersistence?.setTranscript(a.trim()),B.dispatchMessage(`global-dictation-completed`,{sessionId:e.sessionId,text:a}),e.analytics.performance.mark(`transcript_dispatched`)}";
 

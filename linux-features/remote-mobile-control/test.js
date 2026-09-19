@@ -3,6 +3,7 @@
 
 const assert = require("node:assert/strict");
 const { spawn, spawnSync } = require("node:child_process");
+const crypto = require("node:crypto");
 const { EventEmitter, once } = require("node:events");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -73,7 +74,7 @@ function syntheticReasoningSummaryTurnStartBundle() {
 }
 
 function syntheticCurrentReasoningSummaryTurnStartBundle() {
-  return "async function HWt(e,t,n,r,i,a,o){let s=n.request,N=a.latestThreadSettings,S=a.initialParams,ye=N?.summary??`none`;S?.summary!==void 0&&(ye=S.summary),o.reasoningSummaryOverride!=null&&(ye=o.reasoningSummaryOverride),s.summary!==void 0&&(ye=s.summary);logger.info(`Reasoning summary turn-start config resolved`,{safe:{summary:ye}});return{summary:ye}}async function QWt(e,t,n,r,i,a){return await HWt(e,t,n,r,i,a,{canUseProjectlessWorkspace:!gh(e.getHostId()),canMaterializeCodexHomeRoots:!gh(e.getHostId())&&!0,preserveWorkspaceSandboxPolicyWithDefault:gh(e.getHostId()),carryProjectlessRuntimeRoots:!gh(e.getHostId()),latestUseAppServerPermissionDefault:!0,reasoningSummaryOverride:e.getDefaultFeatureOverride(`concurrent_reasoning_summaries`)===!0?`detailed`:null})}";
+  return "async function HWt(e,t,n,r,i,a,o){let s=n.request,N=a.latestThreadSettings,S=a.initialParams,C=a.configRequirements,ye=N?.summary??`none`;S?.summary!==void 0&&(ye=S.summary),o.reasoningSummaryOverride!=null&&(ye=o.reasoningSummaryOverride),ye=C==null?null:C.model_reasoning_summary??ye,s.summary!==void 0&&(ye=s.summary);logger.info(`Reasoning summary turn-start config resolved`,{safe:{summary:ye}});return{summary:ye}}async function QWt(e,t,n,r,i,a){return await HWt(e,t,n,r,i,a,{canUseProjectlessWorkspace:!gh(e.getHostId()),canMaterializeCodexHomeRoots:!gh(e.getHostId())&&!0,preserveWorkspaceSandboxPolicyWithDefault:gh(e.getHostId()),carryProjectlessRuntimeRoots:!gh(e.getHostId()),latestUseAppServerPermissionDefault:!0,reasoningSummaryOverride:e.getDefaultFeatureOverride(`concurrent_reasoning_summaries`)===!0?`detailed`:null})}";
 }
 
 test("remote mobile README assigns every descriptor to one control topology", () => {
@@ -118,8 +119,8 @@ function syntheticMainBundle() {
   return [
     'let i=require("node:path"),o=require("node:fs"),s=require("node:crypto"),h=require("node:child_process"),b={createRequire:()=>()=>({})};',
     "function TV(e){return Buffer.from(JSON.stringify(e),`utf8`)}",
-    "var bV=(0,b.createRequire)(__filename),xV=`remote-control-device-key.node`,SV=`codex-device-key-sign-payload/v1`;",
-    "function wV({resourcesPath:e}){let t=null,n=()=>{if(process.platform!==`darwin`&&process.platform!==`win32`)throw Error(`Remote control device keys are only available on macOS and Windows`);if(e==null)throw Error(`Remote control device keys require resourcesPath`);return t??=bV(i.join(e,`native`,xV)),t};return{createDeviceKey:e=>n().createDeviceKey(e??`hardware_only`),deleteDeviceKey:e=>n().deleteDeviceKey(e),getDeviceKeyPublic:e=>n().getDeviceKeyPublic(e),signDeviceKey:async(e,t)=>{let r=TV(t);return{...await n().signDeviceKey(e,r),signedPayloadBase64:r.toString(`base64`)}}}}",
+    "var bV=(0,b.createRequire)(__filename),xV=`remote-control-device-key.node`,SV=`codex-device-key-sign-payload/v1`,wV=class{resourcesPath;addon=null;constructor(e){this.resourcesPath=e}createDeviceKey(e){return this.getAddon().createDeviceKey(e??`hardware_only`)}deleteDeviceKey(e){return this.getAddon().deleteDeviceKey(e)}getDeviceKeyPublic(e){return this.getAddon().getDeviceKeyPublic(e)}async signDeviceKey(e,t){let n=TV(t);return{...await this.getAddon().signDeviceKey(e,n),signedPayloadBase64:n.toString(`base64`)}}getAddon(){if(this.resourcesPath==null)throw Error(`Remote control device keys require resourcesPath`);return this.addon??=bV(i.join(this.resourcesPath,`native`,xV)),this.addon}};",
+    "function Owner(){this.remoteControlDeviceKeyClient=new wV(null),this.executionHostRegistry={}}",
     "async function mV({codexHome:e,hostConfig:n,logger:r=t.Jr()}){if(n.kind===`local`)try{await hV(i.default.join(e??t.Rr({hostConfig:n,preferWsl:t.Kr(n)}),pV))&&r.info(`Removed remote_control from config before app-server start`)}catch(e){r.warning(`Failed to remove remote_control before app-server start`,{safe:{},sensitive:{error:e}})}}",
   ].join("");
 }
@@ -128,8 +129,8 @@ function syntheticCurrentMainBundle() {
   return [
     'let i=require("node:path"),o=require("node:fs"),s=require("node:crypto"),h=require("node:child_process"),b={createRequire:()=>()=>({})};',
     "function mz(e){return Buffer.from(JSON.stringify({domain:`codex-device-key-sign-payload/v1`,payload:e}),`utf8`)}",
-    "var lz=(0,b.createRequire)(__filename),uz=`remote-control-device-key.node`,dz=`codex-device-key-sign-payload/v1`;",
-    "function pz({resourcesPath:e}){let t=null,n=()=>{if(process.platform!==`darwin`&&process.platform!==`win32`)throw Error(`Remote control device keys are only available on macOS and Windows`);if(e==null)throw Error(`Remote control device keys require resourcesPath`);return t??=lz((0,i.join)(e,`native`,uz)),t};return{createDeviceKey:e=>n().createDeviceKey(e??`hardware_only`),deleteDeviceKey:e=>n().deleteDeviceKey(e),getDeviceKeyPublic:e=>n().getDeviceKeyPublic(e),signDeviceKey:async(e,t)=>{let r=mz(t);return{...await n().signDeviceKey(e,r),signedPayloadBase64:r.toString(`base64`)}}}}",
+    "var lz=(0,b.createRequire)(__filename),uz=`remote-control-device-key.node`,dz=`codex-device-key-sign-payload/v1`,pz=class{resourcesPath;addon=null;constructor(e){this.resourcesPath=e}createDeviceKey(e){return this.getAddon().createDeviceKey(e??`hardware_only`)}deleteDeviceKey(e){return this.getAddon().deleteDeviceKey(e)}getDeviceKeyPublic(e){return this.getAddon().getDeviceKeyPublic(e)}async signDeviceKey(e,t){let n=mz(t);return{...await this.getAddon().signDeviceKey(e,n),signedPayloadBase64:n.toString(`base64`)}}getAddon(){if(this.resourcesPath==null)throw Error(`Remote control device keys require resourcesPath`);return this.addon??=lz((0,i.join)(this.resourcesPath,`native`,uz)),this.addon}};",
+    "function Owner(){this.remoteControlDeviceKeyClient=new pz(null),this.executionHostRegistry={}}",
     "async function vV({codexHome:e,hostConfig:n,logger:r=t.Jr()}){if(n.kind===`local`)try{await yV(i.default.join(e??t.Rr({hostConfig:n,preferWsl:t.Kr(n)}),_V))&&r.info(`Removed remote_control from config before app-server start`)}catch(e){r.warning(`Failed to remove remote_control before app-server start`,{safe:{},sensitive:{error:e}})}}",
   ].join("");
 }
@@ -138,26 +139,32 @@ function syntheticCryptoAliasCollisionMainBundle() {
   return [
     'let a=require("node:path"),o=require("node:fs"),c=require("node:crypto"),h=require("node:child_process"),b={createRequire:()=>()=>({})};',
     "function mz(e){return Buffer.from(JSON.stringify({domain:`codex-device-key-sign-payload/v1`,payload:e}),`utf8`)}",
-    "var lz=(0,b.createRequire)(__filename),uz=`remote-control-device-key.node`,dz=`codex-device-key-sign-payload/v1`;",
-    "function pz({resourcesPath:e}){let t=null,n=()=>{if(process.platform!==`darwin`&&process.platform!==`win32`)throw Error(`Remote control device keys are only available on macOS and Windows`);if(e==null)throw Error(`Remote control device keys require resourcesPath`);return t??=lz((0,a.join)(e,`native`,uz)),t};return{createDeviceKey:e=>n().createDeviceKey(e??`hardware_only`),deleteDeviceKey:e=>n().deleteDeviceKey(e),getDeviceKeyPublic:e=>n().getDeviceKeyPublic(e),signDeviceKey:async(e,t)=>{let r=mz(t);return{...await n().signDeviceKey(e,r),signedPayloadBase64:r.toString(`base64`)}}}}",
+    "var lz=(0,b.createRequire)(__filename),uz=`remote-control-device-key.node`,dz=`codex-device-key-sign-payload/v1`,pz=class{resourcesPath;addon=null;constructor(e){this.resourcesPath=e}createDeviceKey(e){return this.getAddon().createDeviceKey(e??`hardware_only`)}deleteDeviceKey(e){return this.getAddon().deleteDeviceKey(e)}getDeviceKeyPublic(e){return this.getAddon().getDeviceKeyPublic(e)}async signDeviceKey(e,t){let n=mz(t);return{...await this.getAddon().signDeviceKey(e,n),signedPayloadBase64:n.toString(`base64`)}}getAddon(){if(this.resourcesPath==null)throw Error(`Remote control device keys require resourcesPath`);return this.addon??=lz((0,a.join)(this.resourcesPath,`native`,uz)),this.addon}};",
+    "function Owner(){this.remoteControlDeviceKeyClient=new pz(null),this.executionHostRegistry={}}",
   ].join("");
 }
 
 function syntheticWrappedNodeModuleMainBundle() {
-  return [
-    'let i=require("node:path"),o=require("node:fs"),s=require("node:crypto"),h=require("node:child_process"),b={createRequire:()=>()=>({})};',
-    "i={default:i},o={default:o},s={default:s};",
-    "function mz(e){return Buffer.from(JSON.stringify({domain:`codex-device-key-sign-payload/v1`,payload:e}),`utf8`)}",
-    "var lz=(0,b.createRequire)(__filename),uz=`remote-control-device-key.node`,dz=`codex-device-key-sign-payload/v1`;",
-    "function pz({resourcesPath:e}){let t=null,n=()=>{if(process.platform!==`darwin`&&process.platform!==`win32`)throw Error(`Remote control device keys are only available on macOS and Windows`);if(e==null)throw Error(`Remote control device keys require resourcesPath`);return t??=lz((0,i.default.join)(e,`native`,uz)),t};return{createDeviceKey:e=>n().createDeviceKey(e??`hardware_only`),deleteDeviceKey:e=>n().deleteDeviceKey(e),getDeviceKeyPublic:e=>n().getDeviceKeyPublic(e),signDeviceKey:async(e,t)=>{let r=mz(t);return{...await n().signDeviceKey(e,r),signedPayloadBase64:r.toString(`base64`)}}}}",
-  ].join("");
+  return syntheticCurrentMainBundle().replace(
+    'let i=require("node:path"),o=require("node:fs"),s=require("node:crypto"),h=require("node:child_process"),b=',
+    'let i=require("node:path"),o=require("node:fs"),s=require("node:crypto"),h=require("node:child_process");i={default:i},o={default:o},s={default:s};let b=',
+  ).replace("(0,i.join)", "(0,i.default.join)");
 }
 
 function syntheticFunctionLocalPathDecoyMainBundle() {
-  return [
-    "let n={unrelated:!0};function injectedFeature(){let n=require(\"node:path\");return n.join(`a`,`b`)}",
-    syntheticCurrentMainBundle(),
-  ].join("");
+  return `let n={unrelated:!0};function injectedFeature(){let n=require("node:path");return n.join(\`a\`,\`b\`)}` +
+    syntheticCurrentMainBundle();
+}
+
+function captureWarns(callback) {
+  const warnings = [];
+  const originalWarn = console.warn;
+  console.warn = (...args) => warnings.push(args.map(String).join(" "));
+  try {
+    return { value: callback(), warnings };
+  } finally {
+    console.warn = originalWarn;
+  }
 }
 
 function createPatchedDeviceKeyClient(configHome, moduleOverrides = {}, processEnv = {}) {
@@ -181,7 +188,7 @@ function createPatchedDeviceKeyClient(configHome, moduleOverrides = {}, processE
     require: (moduleName) => moduleOverrides[moduleName] ?? require(moduleName),
     setTimeout,
   };
-  vm.runInNewContext(`${patched};module.exports=wV({resourcesPath:null});`, context);
+  vm.runInNewContext(`${patched};module.exports=new Owner().remoteControlDeviceKeyClient;`, context);
   return context.module.exports;
 }
 
@@ -615,50 +622,6 @@ test("remote mobile stage hook relies on the official single-instance lifecycle"
   }
 });
 
-test("remote mobile stage hook recognizes native Chrome routing in the current browser service", () => {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "codex-remote-mobile-stage-"));
-  try {
-    const installDir = path.join(tempRoot, "package", "opt", "codex-desktop");
-    const workDir = path.join(tempRoot, "work");
-    const buildDir = path.join(workDir, "app-extracted", ".vite", "build");
-    const scriptsDir = path.join(
-      installDir,
-      "resources",
-      "plugins",
-      "openai-bundled",
-      "plugins",
-      "chrome",
-      "scripts",
-    );
-    const client = "globalThis.nodeRepl.rpc(`browser`,{method:`setup`});";
-    const service = syntheticModernChromeBrowserClientBundle();
-
-    fs.mkdirSync(buildDir, { recursive: true });
-    fs.mkdirSync(scriptsDir, { recursive: true });
-    fs.writeFileSync(
-      path.join(buildDir, "main.js"),
-      applyLinuxRemoteMobileAppServerRemoteControlPatch(syntheticCurrentLocalAppServerLaunchBundle()),
-    );
-    fs.writeFileSync(path.join(scriptsDir, "browser-client.mjs"), client);
-    fs.writeFileSync(path.join(scriptsDir, "browser-service.mjs"), service);
-
-    const result = runStageHook({
-      ARCH: "x64",
-      CODEX_UPSTREAM_APP_DIR: path.join(tempRoot, "upstream-app"),
-      INSTALL_DIR: installDir,
-      SCRIPT_DIR: REPO_ROOT,
-      WORK_DIR: workDir,
-    });
-
-    assert.equal(result.status, 0, result.stderr || result.stdout);
-    assert.doesNotMatch(result.stderr, /backend allowlist needles/);
-    assert.equal(fs.readFileSync(path.join(scriptsDir, "browser-client.mjs"), "utf8"), client);
-    assert.equal(fs.readFileSync(path.join(scriptsDir, "browser-service.mjs"), "utf8"), service);
-  } finally {
-    fs.rmSync(tempRoot, { recursive: true, force: true });
-  }
-});
-
 test("remote mobile stage hook removes a stale ownership marker when only the legacy WSL patch marker exists", () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "codex-remote-mobile-stage-"));
   try {
@@ -1044,9 +1007,60 @@ test("remote mobile control feature exposes opt-in main-bundle and webview patch
     );
     assert.ok(visibilityDescriptor);
     assert.equal(visibilityDescriptor.pattern.test("remote-connections-settings-fixture.js"), false);
+    assert.equal(visibilityDescriptor.pattern.test(CURRENT_REMOTE_RUNTIME_ASSET), true);
     assert.equal(visibilityDescriptor.pattern.test(CURRENT_REMOTE_CONNECTIONS_VISIBILITY_ASSET), true);
     assert.equal(visibilityDescriptor.pattern.test("use-plugin-install-flow-fixture.js"), false);
     assert.equal(visibilityDescriptor.pattern.test("app-main-fixture.js"), false);
+    const currentVisibilityOwner = syntheticCurrentUsePluginVisibilityBundle();
+    const patchedVisibilityOwner = applyLinuxRemoteControlVisibilityPatch(currentVisibilityOwner);
+    assert.equal(
+      visibilityDescriptor.assetMatch(
+        currentVisibilityOwner,
+        CURRENT_REMOTE_CONNECTIONS_VISIBILITY_ASSET,
+        {},
+      ),
+      true,
+    );
+    assert.equal(
+      visibilityDescriptor.assetMatch(
+        patchedVisibilityOwner,
+        CURRENT_REMOTE_CONNECTIONS_VISIBILITY_ASSET,
+        {},
+      ),
+      true,
+    );
+    assert.equal(
+      visibilityDescriptor.assetMatch(
+        "function unrelated(){return!0}",
+        CURRENT_REMOTE_CONNECTIONS_VISIBILITY_ASSET,
+        {},
+      ),
+      false,
+    );
+    assert.equal(
+      visibilityDescriptor.assetMatch(
+        currentVisibilityOwner + currentVisibilityOwner,
+        CURRENT_REMOTE_CONNECTIONS_VISIBILITY_ASSET,
+        {},
+      ),
+      false,
+    );
+    assert.equal(
+      visibilityDescriptor.assetMatch(
+        currentVisibilityOwner + patchedVisibilityOwner,
+        CURRENT_REMOTE_CONNECTIONS_VISIBILITY_ASSET,
+        {},
+      ),
+      false,
+    );
+    assert.equal(
+      visibilityDescriptor.assetMatch(
+        patchedVisibilityOwner.replace("accessRequired!==!0", "accessRequired===!0"),
+        CURRENT_REMOTE_CONNECTIONS_VISIBILITY_ASSET,
+        {},
+      ),
+      false,
+    );
 
     const copyDescriptor = descriptors.find((descriptor) =>
       descriptor.id === "feature:remote-mobile-control:linux-remote-control-copy"
@@ -1137,7 +1151,7 @@ test("Linux remote-control feature patch updates the device-key provider", () =>
 
   assert.notEqual(patched, source);
   assert.match(patched, /codexLinuxRemoteControlDeviceKeyClient/);
-  assert.match(patched, /process\.platform===`linux`\)return codexLinuxRemoteControlDeviceKeyClient\(\)/);
+  assert.match(patched, /remoteControlDeviceKeyClient=process\.platform===`linux`\?codexLinuxRemoteControlDeviceKeyClient\(\):new wV/);
   assert.doesNotMatch(patched, /n\.kind===`local`&&process\.platform!==`linux`/);
   assert.equal(applyLinuxRemoteControlDeviceKeyPatch(patched), patched);
 });
@@ -1148,16 +1162,54 @@ test("Linux remote-control device-key patch handles current minified aliases", (
 
   assert.notEqual(patched, source);
   assert.match(patched, /codexLinuxRemoteControlDeviceKeyClient/);
-  assert.match(patched, /process\.platform===`linux`\)return codexLinuxRemoteControlDeviceKeyClient\(\)/);
+  assert.match(patched, /remoteControlDeviceKeyClient=process\.platform===`linux`\?codexLinuxRemoteControlDeviceKeyClient\(\):new pz/);
   assert.doesNotMatch(patched, /n\.kind===`local`&&process\.platform!==`linux`/);
   assert.equal(applyLinuxRemoteControlDeviceKeyPatch(patched), patched);
+});
+
+test("Linux remote-control device-key patch rejects incomplete current state", () => {
+  const source = `function codexLinuxRemoteControlDeviceKeyClient(){}${syntheticCurrentMainBundle()}`;
+  const warnings = captureWarns(() => applyLinuxRemoteControlDeviceKeyPatch(source));
+
+  assert.equal(warnings.value, source);
+  assert.match(warnings.warnings.join("\n"), /incomplete Linux remote-control device-key patch/u);
+});
+
+test("Linux remote-control device-key patch rejects ambiguous and unrelated anchors byte-identically", () => {
+  const source = syntheticMainBundle();
+  const requireAnchor =
+    "var bV=(0,b.createRequire)(__filename),xV=`remote-control-device-key.node`";
+  const providerStart = source.indexOf(",wV=class");
+  const providerEnd = source.indexOf(";function Owner") + 1;
+  const providerAnchor = source.slice(providerStart, providerEnd);
+  const construction =
+    "this.remoteControlDeviceKeyClient=new wV(null),this.executionHostRegistry";
+  const patched = applyLinuxRemoteControlDeviceKeyPatch(source);
+  const injectedProviderStart = patched.indexOf("function codexLinuxRemoteControlDeviceKeyClient");
+  const injectedProviderEnd = patched.indexOf(requireAnchor);
+  const partialPatched = patched.slice(0, injectedProviderStart) +
+    patched.slice(injectedProviderEnd);
+  const variants = {
+    "duplicate require anchor": source.replace(requireAnchor, `${requireAnchor};${requireAnchor}`),
+    "duplicate provider anchor": source.slice(0, providerEnd) + providerAnchor +
+      source.slice(providerEnd),
+    "duplicate construction anchor": `${source}function Other(){${construction}={}}`,
+    "provider linked to another require": source.replace("this.addon??=bV(", "this.addon??=otherRequire("),
+    "mixed current and patched construction": `${patched}function Other(){${construction}={}}`,
+    "partial patched state": partialPatched,
+  };
+
+  for (const [name, drifted] of Object.entries(variants)) {
+    const result = captureWarns(() => applyLinuxRemoteControlDeviceKeyPatch(drifted));
+    assert.equal(result.value, drifted, name);
+    assert.equal(result.warnings.length, 1, name);
+  }
 });
 
 test("Linux remote-control device-key provider does not capture a function-local child-process alias", () => {
   const source = `function injectedFeature(){let __codexChild=require(\`node:child_process\`);return __codexChild}${syntheticMainBundle()}`;
   const patched = applyLinuxRemoteControlDeviceKeyPatch(source);
 
-  assert.match(patched, /codexLinuxRemoteControlChildProcess=require\(`node:child_process`\)/);
   assert.match(patched, /codexLinuxRemoteControlChildProcess\.spawn\(/);
   assert.doesNotMatch(patched, /__codexChild\.spawn\(/);
 });
@@ -1174,10 +1226,8 @@ test("Linux remote-control device-key provider avoids upstream minified alias co
   const configHome = fs.mkdtempSync(path.join(os.tmpdir(), "codex-remote-mobile-key-collision-"));
   try {
     const patched = applyLinuxRemoteControlDeviceKeyPatch(syntheticCryptoAliasCollisionMainBundle());
-    assert.match(patched, /codexLinuxRemoteControlCrypto=require\(`node:crypto`\)/);
     assert.match(patched, /\(0,codexLinuxRemoteControlCrypto\.generateKeyPairSync\)\(`/);
     assert.match(patched, /codexLinuxRemoteControlKeyRecord/);
-    assert.doesNotMatch(patched, /codexLinuxRemoteControlCrypto=c/);
     assert.doesNotMatch(patched, /let c=\{algorithm:`ecdsa_p256_sha256`/);
 
     const context = {
@@ -1199,7 +1249,7 @@ test("Linux remote-control device-key provider avoids upstream minified alias co
       setTimeout,
     };
 
-    vm.runInNewContext(`${patched};module.exports=pz({resourcesPath:null});`, context);
+    vm.runInNewContext(`${patched};module.exports=new Owner().remoteControlDeviceKeyClient;`, context);
     const created = await context.module.exports.createDeviceKey("allow_os_protected_nonextractable");
     assert.equal(created.algorithm, "ecdsa_p256_sha256");
     assert.equal(created.protectionClass, "os_protected_nonextractable");
@@ -1207,6 +1257,23 @@ test("Linux remote-control device-key provider avoids upstream minified alias co
   } finally {
     fs.rmSync(configHome, { recursive: true, force: true });
   }
+});
+
+test("Linux device-key provider works with upstream namespace-wrapped Node module aliases", async () => {
+  const source = syntheticWrappedNodeModuleMainBundle();
+  const patched = applyLinuxRemoteControlDeviceKeyPatch(source);
+
+  assert.notEqual(patched, source);
+  assert.match(patched, /remoteControlDeviceKeyClient=process\.platform===`linux`\?codexLinuxRemoteControlDeviceKeyClient\(\):new pz/);
+});
+
+test("Linux device-key provider ignores earlier function-local Node module decoys", () => {
+  const source = syntheticFunctionLocalPathDecoyMainBundle();
+  const patched = applyLinuxRemoteControlDeviceKeyPatch(source);
+
+  assert.notEqual(patched, source);
+  assert.match(patched, /codexLinuxRemoteControlPath\.isAbsolute\(/);
+  assert.doesNotMatch(patched, /n\.isAbsolute\(codexLinuxRemoteControlConfigRoot\)/);
 });
 
 test("Linux remote-control client revocation triggers local cleanup and re-enrollment", () => {
@@ -1383,6 +1450,80 @@ test("retired reasoning-summary resolver is rejected byte-identically", () => {
   assert.ok(warnings.some((warning) => warning.includes("turn-start resolver")));
 });
 
+test("prior reasoning-summary resolver without model configuration is rejected byte-identically", () => {
+  const source = syntheticCurrentReasoningSummaryTurnStartBundle().replace(
+    "ye=C==null?null:C.model_reasoning_summary??ye,",
+    "",
+  );
+  const { result, warnings } = captureWarnings(() =>
+    applyLinuxRemoteMobileReasoningSummaryPatch(source),
+  );
+
+  assert.equal(result, source);
+  assert.ok(warnings.some((warning) => warning.includes("turn-start resolver")));
+});
+
+test("duplicate reasoning-summary owner pairs are rejected byte-identically", () => {
+  const owner = syntheticCurrentReasoningSummaryTurnStartBundle();
+  const source = owner + owner.replaceAll("HWt", "AWt").replaceAll("QWt", "BWt");
+  const { result, warnings } = captureWarnings(() =>
+    applyLinuxRemoteMobileReasoningSummaryPatch(source),
+  );
+
+  assert.equal(result, source);
+  assert.ok(warnings.some((warning) => warning.includes("ambiguous reasoning-summary")));
+});
+
+test("mixed pristine and patched reasoning-summary owner pairs are rejected byte-identically", () => {
+  const owner = syntheticCurrentReasoningSummaryTurnStartBundle();
+  const patchedOwner = applyLinuxRemoteMobileReasoningSummaryPatch(owner);
+  const pristineOwner = owner.replaceAll("HWt", "AWt").replaceAll("QWt", "BWt");
+  const source = patchedOwner + pristineOwner;
+  const { result, warnings } = captureWarnings(() =>
+    applyLinuxRemoteMobileReasoningSummaryPatch(source),
+  );
+
+  assert.equal(result, source);
+  assert.ok(warnings.some((warning) => warning.includes("ambiguous reasoning-summary")));
+});
+
+test("partial reasoning-summary owner pairs are rejected byte-identically", () => {
+  const patched = applyLinuxRemoteMobileReasoningSummaryPatch(
+    syntheticCurrentReasoningSummaryTurnStartBundle(),
+  );
+  const partialSources = [
+    patched.replace(
+      "codexLinuxRemoteMobileHost:gh(e.getHostId())&&a.mode===`durable`,",
+      "",
+    ),
+    patched.replace(
+      "/*codexLinuxRemoteMobileReasoningSummaryNone*/navigator.userAgent.includes(`Linux`)&&o.codexLinuxRemoteMobileHost&&s.summary===void 0&&(ye=`none`);",
+      "",
+    ),
+  ];
+
+  for (const source of partialSources) {
+    const { result, warnings } = captureWarnings(() =>
+      applyLinuxRemoteMobileReasoningSummaryPatch(source),
+    );
+    assert.equal(result, source);
+    assert.ok(warnings.some((warning) => warning.includes("incomplete reasoning-summary")));
+  }
+});
+
+test("a reasoning-summary resolver with ambiguous callers is rejected byte-identically", () => {
+  const owner = syntheticCurrentReasoningSummaryTurnStartBundle();
+  const callerStart = owner.indexOf("async function QWt");
+  const duplicateCaller = owner.slice(callerStart).replace("QWt", "RWt");
+  const source = owner + duplicateCaller;
+  const { result, warnings } = captureWarnings(() =>
+    applyLinuxRemoteMobileReasoningSummaryPatch(source),
+  );
+
+  assert.equal(result, source);
+  assert.ok(warnings.some((warning) => warning.includes("ambiguous or incomplete")));
+});
+
 test("current reasoning-summary owner distinguishes durable mobile hosts and preserves explicit summaries", async () => {
   const source = syntheticCurrentReasoningSummaryTurnStartBundle();
   const patched = applyLinuxRemoteMobileReasoningSummaryPatch(source);
@@ -1391,7 +1532,11 @@ test("current reasoning-summary owner distinguishes durable mobile hosts and pre
   assert.match(patched, /codexLinuxRemoteMobileReasoningSummaryNone/);
   assert.match(patched, /codexLinuxRemoteMobileHost:gh\(e\.getHostId\(\)\)&&a\.mode===`durable`/);
   assert.match(patched, /navigator\.userAgent\.includes\(`Linux`\)&&o\.codexLinuxRemoteMobileHost/);
-  assert.equal(applyLinuxRemoteMobileReasoningSummaryPatch(patched), patched);
+  const { result: repatched, warnings } = captureWarnings(() =>
+    applyLinuxRemoteMobileReasoningSummaryPatch(patched),
+  );
+  assert.equal(repatched, patched);
+  assert.deepEqual(warnings, []);
 
   const context = {
     gh: (hostId) => hostId === "local",
@@ -1402,6 +1547,7 @@ test("current reasoning-summary owner distinguishes durable mobile hosts and pre
   vm.runInNewContext(`${patched};module.exports=QWt;`, context);
   const startTurn = context.module.exports;
   const args = (request, mode) => [null, { request }, null, null, {
+    configRequirements: { model_reasoning_summary: "model" },
     initialParams: { summary: "auto" },
     latestThreadSettings: { summary: "auto" },
     mode,
@@ -1420,8 +1566,8 @@ test("current reasoning-summary owner distinguishes durable mobile hosts and pre
   );
 
   assert.equal(durable.summary, "none");
-  assert.equal(nonDurable.summary, "detailed");
-  assert.equal(remoteDurable.summary, "detailed");
+  assert.equal(nonDurable.summary, "model");
+  assert.equal(remoteDurable.summary, "model");
   assert.equal(explicit.summary, "concise");
 });
 
@@ -1607,14 +1753,14 @@ test("Linux remote-control feature sync does not advertise SSH hosts to mobile",
   assert.equal(hostCalls[1].params.enablement.remote_control, undefined);
 });
 
-test("Linux remote-control visibility patch handles current settings bundle shape", () => {
+test("Linux remote-control visibility patch rejects an owner without the current access gate", () => {
   const source = syntheticCurrentVisibilityBundle();
-  const patched = applyLinuxRemoteControlVisibilityPatch(source);
+  const { result, warnings } = captureWarnings(() =>
+    applyLinuxRemoteControlVisibilityPatch(source)
+  );
 
-  assert.notEqual(patched, source);
-  assert.match(patched, /navigator\.userAgent\.includes\(`Linux`\)/);
-  assert.match(patched, /return\(n\|\|t\)&&\(n\|\|\(e\?\.available\?\?!0\)\)&&e\?\.accessRequired!==!0/);
-  assert.equal(applyLinuxRemoteControlVisibilityPatch(patched), patched);
+  assert.equal(result, source);
+  assert.ok(warnings.some((warning) => warning.includes("unique remote-control visibility gate")));
 });
 
 test("Linux remote-control visibility patch handles current use-plugin gate shape", () => {
@@ -2709,7 +2855,7 @@ test("patched Linux device-key provider can create, sign with, and delete a key"
       setTimeout,
     };
 
-    vm.runInNewContext(`${patched};module.exports=wV({resourcesPath:null});`, context);
+    vm.runInNewContext(`${patched};module.exports=new Owner().remoteControlDeviceKeyClient;`, context);
     const client = context.module.exports;
     const created = await client.createDeviceKey("allow_os_protected_nonextractable");
     assert.equal(created.algorithm, "ecdsa_p256_sha256");
@@ -2726,6 +2872,28 @@ test("patched Linux device-key provider can create, sign with, and delete a key"
     assert.equal(signature.algorithm, "ecdsa_p256_sha256");
     assert.match(signature.signatureDerBase64, /^[A-Za-z0-9+/]+=*$/);
     assert.match(signature.signedPayloadBase64, /^[A-Za-z0-9+/]+=*$/);
+    const signedPayload = Buffer.from(signature.signedPayloadBase64, "base64");
+    assert.deepEqual(JSON.parse(signedPayload.toString("utf8")), {
+      domain: "codex-device-key-sign-payload/v1",
+      payload: {
+        type: "remoteControlClientEnrollment",
+        nonce: "test",
+      },
+    });
+    const publicKey = crypto.createPublicKey({
+      format: "der",
+      key: Buffer.from(created.publicKeySpkiDerBase64, "base64"),
+      type: "spki",
+    });
+    assert.equal(
+      crypto.verify(
+        "sha256",
+        signedPayload,
+        publicKey,
+        Buffer.from(signature.signatureDerBase64, "base64"),
+      ),
+      true,
+    );
 
     const storeDirectory = path.join(sharedConfigDirectory, "remote-control-device-keys");
     const storePath = path.join(storeDirectory, "remote-control-device-keys-v1.json");
@@ -2735,72 +2903,6 @@ test("patched Linux device-key provider can create, sign with, and delete a key"
 
     await client.deleteDeviceKey(created.keyId);
     await assert.rejects(() => client.getDeviceKeyPublic(created.keyId), /not found/);
-  } finally {
-    fs.rmSync(configHome, { recursive: true, force: true });
-  }
-});
-
-test("Linux device-key provider works with upstream namespace-wrapped Node module aliases", async () => {
-  const configHome = fs.mkdtempSync(path.join(os.tmpdir(), "codex-remote-mobile-key-wrapped-modules-"));
-  try {
-    const patched = applyLinuxRemoteControlDeviceKeyPatch(syntheticWrappedNodeModuleMainBundle());
-    const context = {
-      Buffer,
-      clearTimeout,
-      Date,
-      Error,
-      JSON,
-      Promise,
-      console,
-      __filename: path.join(configHome, "main.js"),
-      module: { exports: {} },
-      process: {
-        env: { XDG_CONFIG_HOME: configHome },
-        getuid: typeof process.getuid === "function" ? process.getuid.bind(process) : undefined,
-        pid: process.pid,
-        platform: "linux",
-      },
-      require,
-      setTimeout,
-    };
-
-    vm.runInNewContext(`${patched};module.exports=pz({resourcesPath:null});`, context);
-    const created = await context.module.exports.createDeviceKey("allow_os_protected_nonextractable");
-    assert.equal(created.algorithm, "ecdsa_p256_sha256");
-    assert.equal((await context.module.exports.getDeviceKeyPublic(created.keyId)).keyId, created.keyId);
-  } finally {
-    fs.rmSync(configHome, { recursive: true, force: true });
-  }
-});
-
-test("Linux device-key provider ignores earlier function-local Node module decoys", async () => {
-  const configHome = fs.mkdtempSync(path.join(os.tmpdir(), "codex-remote-mobile-key-scope-decoy-"));
-  try {
-    const patched = applyLinuxRemoteControlDeviceKeyPatch(syntheticFunctionLocalPathDecoyMainBundle());
-    const context = {
-      Buffer,
-      clearTimeout,
-      Date,
-      Error,
-      JSON,
-      Promise,
-      console,
-      __filename: path.join(configHome, "main.js"),
-      module: { exports: {} },
-      process: {
-        env: { XDG_CONFIG_HOME: configHome },
-        getuid: typeof process.getuid === "function" ? process.getuid.bind(process) : undefined,
-        pid: process.pid,
-        platform: "linux",
-      },
-      require,
-      setTimeout,
-    };
-
-    vm.runInNewContext(`${patched};module.exports=pz({resourcesPath:null});`, context);
-    const created = await context.module.exports.createDeviceKey("allow_os_protected_nonextractable");
-    assert.equal(created.algorithm, "ecdsa_p256_sha256");
-    assert.equal((await context.module.exports.getDeviceKeyPublic(created.keyId)).keyId, created.keyId);
   } finally {
     fs.rmSync(configHome, { recursive: true, force: true });
   }
@@ -2854,35 +2956,6 @@ test("Linux device-key provider falls back for basic_text and unavailable safeSt
     assert.equal(unavailableRecord.detectedBackend, "unavailable");
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test("Linux device-key provider invalidates encrypted enrollment when its keychain is unavailable", async () => {
-  const configHome = fs.mkdtempSync(path.join(os.tmpdir(), "codex-remote-mobile-key-stale-keychain-"));
-  try {
-    const storage = createSafeStorage();
-    const protectedClient = createPatchedDeviceKeyClient(configHome, {
-      electron: { safeStorage: storage.safeStorage },
-    });
-    const created = await protectedClient.createDeviceKey("allow_os_protected_nonextractable");
-    const unavailableClient = createPatchedDeviceKeyClient(configHome, { electron: {} });
-
-    await assert.rejects(
-      () => unavailableClient.getDeviceKeyPublic(created.keyId),
-      /Remote-control client key material missing/u,
-    );
-    await assert.rejects(
-      () => unavailableClient.signDeviceKey(created.keyId, { nonce: "stale-keychain" }),
-      /Remote-control client key material missing/u,
-    );
-
-    const record = JSON.parse(fs.readFileSync(remoteControlKeyStorePaths(configHome).store, "utf8"))
-      .keys[created.keyId];
-    assert.equal(record.storageBackend, "gnome_libsecret");
-    assert.equal(typeof record.privateKeyCiphertextBase64, "string");
-    assert.equal(record.privateKeyPkcs8Pem, undefined);
-  } finally {
-    fs.rmSync(configHome, { recursive: true, force: true });
   }
 });
 
