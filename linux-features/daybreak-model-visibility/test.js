@@ -22,6 +22,10 @@ function pickerFixture() {
   return "function c3(e,t,n=!1){return e?.filter(({model:e})=>t==null||e!==`gpt-daybreak-blue-latest`).map(e=>{let r=null;return(t===!1?!Oae(e,!1):t===`standard`&&Ase(e.model))?r=mr({id:`disabled`}):(typeof t==`boolean`?t&&!Oae(e,!0):t!=null&&qee(e.model,t,n))&&(r=mr({id:`unavailable`})),{model:e,disabledReason:r}})}";
 }
 
+function currentPickerFixture() {
+  return "function i3(e,t,n=!1){return e?.filter(({model:e})=>t==null||e!==`gpt-daybreak-blue-latest`&&e!==`gpt-daybreak-red-latest`).map(e=>{let r=null;return(t===!1?!eye(e,!1):t===`standard`&&oae(e.model))?r=Zn({id:`composer.modelPicker.daybreak.modelDisabled`,defaultMessage:`Turn on Daybreak to use this model`}):(typeof t==`boolean`?t&&!eye(e,!0):t!=null&&Qde(e.model,t,n))&&(r=Zn({id:`composer.modelPicker.daybreak.modelUnavailable`,defaultMessage:`Turn off Daybreak to use this model`})),{model:e,disabledReason:r}})}";
+}
+
 function evaluateCatalog(source, authMethod, model, availableModels = new Set()) {
   const visible = Function(`${source};return L9n;`)();
   return visible({
@@ -35,14 +39,27 @@ function evaluateCatalog(source, authMethod, model, availableModels = new Set())
   });
 }
 
-function evaluatePicker(source, models, access) {
+function evaluatePicker(source, models, access, { functionName = "c3" } = {}) {
   const picker = Function(
     "Oae",
     "Ase",
     "qee",
     "mr",
-    `${source};return c3;`,
+    "eye",
+    "oae",
+    "Qde",
+    "Zn",
+    `${source};return ${functionName};`,
   )(
+    (model, enabled) => {
+      const programs = model.availableAccessPrograms?.cyber;
+      return (!enabled && !programs?.length) || (enabled
+        ? programs?.includes("daybreakBlue") || programs?.includes("daybreakRed")
+        : programs?.includes("standard")) === true;
+    },
+    (model) => model.toLowerCase().includes("cyber") || model.toLowerCase().includes("daybreak-red"),
+    (model, program) => program !== "standard" && (model === "gpt-6-astra" || model === "gpt-6-astra-wm"),
+    (message) => message,
     (model, enabled) => {
       const programs = model.availableAccessPrograms?.cyber;
       return (!enabled && !programs?.length) || (enabled
@@ -130,6 +147,29 @@ test("picker retains only a visible Daybreak alias and preserves access metadata
     { model: "gpt-6-astra", disabledReason: { id: "unavailable" } },
   ]);
   assert.deepEqual(evaluatePicker(patched, models, null).map(({ model }) => model), [
+    "gpt-daybreak-blue-latest",
+    "gpt-6-astra",
+  ]);
+});
+
+test("picker preserves the current red-alias exclusion while retaining only a visible Daybreak alias", () => {
+  const patched = applyDaybreakPickerVisibilityPatch(currentPickerFixture());
+  const models = [
+    { model: "gpt-daybreak-blue-latest", hidden: false, availableAccessPrograms: { cyber: ["daybreakBlue"] } },
+    { model: "gpt-daybreak-blue-latest", hidden: true, availableAccessPrograms: { cyber: ["daybreakBlue"] } },
+    { model: "gpt-daybreak-blue-latest" },
+    { model: "gpt-daybreak-red-latest", hidden: false },
+    { model: "gpt-6-astra", hidden: false, availableAccessPrograms: { cyber: ["standard"] } },
+  ];
+
+  assert.deepEqual(evaluatePicker(patched, models, "daybreakBlue", { functionName: "i3" }), [
+    { model: "gpt-daybreak-blue-latest", disabledReason: null },
+    { model: "gpt-6-astra", disabledReason: {
+      id: "composer.modelPicker.daybreak.modelUnavailable",
+      defaultMessage: "Turn off Daybreak to use this model",
+    } },
+  ]);
+  assert.deepEqual(evaluatePicker(patched, models, null, { functionName: "i3" }).map(({ model }) => model), [
     "gpt-daybreak-blue-latest",
     "gpt-6-astra",
   ]);

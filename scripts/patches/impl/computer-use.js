@@ -22,14 +22,18 @@ function applyLinuxCodexAppThreadToolsPatch(currentSource) {
     return currentSource;
   }
 
-  const needle = "readDynamicTools:e=>c.request(e),traceRequest(e){";
-  const matchIndex = currentSource.indexOf(needle);
-  if (matchIndex === -1 || currentSource.indexOf(needle, matchIndex + needle.length) !== -1) {
+  const needleRegex =
+    /readDynamicTools:e=>([A-Za-z_$][\w$]*)\.request\(e\),traceRequest\(e\)\{/;
+  const needleMatch = needleRegex.exec(currentSource);
+  if (needleMatch == null || needleRegex.exec(currentSource.slice(needleMatch.index + needleMatch[0].length)) != null) {
     console.warn(
       "WARN: Could not uniquely identify local thread dynamic-tool request construction - skipping Linux thread tools patch",
     );
     return currentSource;
   }
+  const dynamicToolsVar = needleMatch[1];
+  const matchIndex = needleMatch.index;
+  const needle = needleMatch[0];
 
   const context = currentSource.slice(Math.max(0, matchIndex - 600), matchIndex);
   const desktopMcpMatches = [...context.matchAll(
@@ -44,7 +48,7 @@ function applyLinuxCodexAppThreadToolsPatch(currentSource) {
   const [, desktopMcpPredicate, hostIdVar] = desktopMcpMatches[0];
 
   const replacement =
-    `readDynamicTools:e=>c.request(${desktopMcpPredicate}(${hostIdVar})?{...e,featureOverrides:{...e.featureOverrides,thread_tools:!0}}:e/*${LINUX_CODEX_APP_THREAD_TOOLS_MARKER}*/),traceRequest(e){`;
+    `readDynamicTools:e=>${dynamicToolsVar}.request(${desktopMcpPredicate}(${hostIdVar})?{...e,featureOverrides:{...e.featureOverrides,thread_tools:!0}}:e/*${LINUX_CODEX_APP_THREAD_TOOLS_MARKER}*/),traceRequest(e){`;
   return currentSource.slice(0, matchIndex) +
     replacement +
     currentSource.slice(matchIndex + needle.length);

@@ -24,8 +24,9 @@ function automationViewFixture(hostClass = null) {
     "function Oz(e){return{contentItems:[{type:`inputText`,text:e==null?`Rendered automation card in the app.`:e.mode===`create`?`Created automation in the app.`:e.mode===`update`?`Updated automation in the app.`:e.deleteStatus===`not_found`?`Automation already does not exist in the app.`:`Deleted automation in the app.`},...e==null?[]:[{type:`inputText`,text:JSON.stringify(e)}]],success:!0}}",
     "function Mz(e){return{response:{contentItems:[{type:`inputText`,text:e}],success:!1}}}",
     "async function jz(e,{threadId:t,argumentsValue:n},r){let i={success:!0,data:n};if(!i.success)return Mz(`invalid`);let a=i.data;if(a.mode===`delete`){let t=a.id??``;try{let{item:n,status:r,success:i}=await e.delete({id:t});return{response:i?Oz({automationId:t,mode:`delete`,deleteStatus:r===`not_found`?`not_found`:`deleted`,snapshot:n==null?null:{kind:n.kind,name:n.name,rrule:n.rrule}}):Mz(`failed`).response,mutation:{mode:`delete`,id:t,item:n,status:r}}}catch(e){return{...Mz(`failed`),mutation:{mode:`delete`,id:t,item:null,status:`host_error`}}}}return{response:Oz()}}",
-    hostClass ?? "var Fz=class{async delete({id:e}){return this.#n(e,null)}async#n(e,t){t?.assertCurrent();let r=api.kr(e),i=api.Or(e),a=i===`deleted`||i===`not_found`;return{item:r,success:a,status:i}}executeUpdateTool(e){return this.#r(e,this)}#r(e,t){return e.hostId===`local`?jz(t,e,e=>null):null}};",
+    hostClass ?? "var Fz=class{habitatAutomationsService;async delete({id:e}){return this.#n(e,null)}async#n(e,t){t?.assertCurrent();let{item:r,status:i}=this.habitatAutomationsService?await this.habitatAutomationsService.delete(e):{item:api.kr(e),status:api.Or(e)},a=i===`deleted`||i===`not_found`;return{item:r,success:a,status:i}}executeUpdateTool(e){return this.#r(e,this)}#r(e,t){return e.hostId===`local`?this.habitatAutomationsService?.isLocalMigrationActive()?Promise.resolve({response:{success:!1,contentItems:[{type:`inputText`,text:`Local automation changes must use the Automations app after migration consent.`}]}}):jz(t,e,e=>null):null}};",
     "globalThis.run=async id=>(await jz(new Fz,{threadId:`thread`,argumentsValue:{mode:`view`,id}},()=>null)).response;",
+    "globalThis.runViaHost=async(id,migrating)=>{let host=new Fz;host.habitatAutomationsService={isLocalMigrationActive:()=>migrating};return(await host.executeUpdateTool({hostId:`local`,threadId:`thread`,argumentsValue:{mode:`view`,id}})).response};",
   ].join("");
 }
 
@@ -234,6 +235,22 @@ test("automation view patch fails closed on drift and incomplete markers", () =>
   }
 });
 
+test("current habitat automation host retains its migration consent guard", async () => {
+  const patched = applyObservableAutomationViewPatch(automationViewFixture());
+  const context = vm.createContext({});
+  vm.runInContext(patched, context);
+  const response = await context.runViaHost("existing", false);
+  assert.equal(JSON.parse(response.contentItems[1].text).status, "PAUSED");
+  const blocked = await context.runViaHost("existing", true);
+  assert.equal(blocked.success, false);
+  assert.equal(blocked.contentItems.length, 1);
+  assert.equal(blocked.contentItems[0].text,
+    "Local automation changes must use the Automations app after migration consent.");
+  const changedGuard = automationViewFixture().replace("isLocalMigrationActive", "unknownMigrationState");
+  assert.throws(() => applyObservableAutomationViewPatch(changedGuard),
+    /did not match the current or patched bundle/);
+});
+
 test("automation view patch rejects an unrelated matching store class", () => {
   const mismatchedHost = automationViewFixture(
     "var ActualHost=class{executeUpdateTool(e){return this.#r(e,this)}#r(e,t){return e.hostId===`local`?jz(t,e,e=>null):null}};" +
@@ -248,8 +265,8 @@ test("automation view patch rejects an unrelated matching store class", () => {
 
 test("automation view patch rejects a private store routed to a different handler", () => {
   const mismatchedHost = automationViewFixture().replace(
-    "return e.hostId===`local`?jz(t,e,e=>null):null",
-    "return e.hostId===`local`?unrelated(t,e,e=>null):null",
+    ":jz(t,e,e=>null):null",
+    ":unrelated(t,e,e=>null):null",
   );
   assert.throws(
     () => applyObservableAutomationViewPatch(mismatchedHost),

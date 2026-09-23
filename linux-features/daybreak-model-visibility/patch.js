@@ -1,6 +1,7 @@
 "use strict";
 
 const ALIAS = "gpt-daybreak-blue-latest";
+const RED_ALIAS = "gpt-daybreak-red-latest";
 const CATALOG_MARKER = "codexLinuxDaybreakCatalogVisibleAlias";
 const PICKER_MARKER = "codexLinuxDaybreakPickerVisibleAlias";
 const IDENT = "[A-Za-z_$][\\w$]*";
@@ -47,15 +48,16 @@ function applyDaybreakPickerVisibilityPatch(source) {
   const pattern = new RegExp(
     `(function ${IDENT}\\((${IDENT}),(${IDENT}),${IDENT}=!1\\)\\{return \\2\\?\\.filter\\()` +
       `\\(\\{model:(${IDENT})\\}\\)=>\\3==null\\|\\|\\4!==\\\`${ALIAS}\\\`` +
+      `(\\&\\&\\4!==\\\`${RED_ALIAS}\\\`)?` +
       `(\\)\\.map\\()`,
   );
   return replaceUnique(
     source,
     pattern,
-    (_match, prefix, _models, _access, model, suffix) =>
+    (_match, prefix, _models, _access, model, redAliasExclusion, suffix) =>
       `${prefix}({model:${model},hidden:codexLinuxDaybreakHidden})=>` +
-      `${model}!==\`${ALIAS}\`||` +
-      `codexLinuxDaybreakHidden===!1/*${PICKER_MARKER}*/${suffix}`,
+      `(${model}!==\`${ALIAS}\`||` +
+      `codexLinuxDaybreakHidden===!1/*${PICKER_MARKER}*/)${redAliasExclusion ?? ""}${suffix}`,
     "Daybreak picker visibility filter",
   );
 }

@@ -53,34 +53,45 @@ test("computer-use-linux is opt-in and owns the current Linux descriptors", () =
   assert.equal(visibility.pattern.test("app-primary-72206882651c.js"), false);
 });
 
-test("Linux thread resume requests sibling tools only for local Desktop MCP", async () => {
-  const source = [
+test("Linux thread resume requests sibling tools only for local Desktop MCP", async (t) => {
+  const buildSource = ({ predicate, hostId, dynamicTools }) => [
     '"use strict";',
-    "function HE(e){return e===`local`}class Nkr{constructor(e){this.params=e}readInputs(){let{hostId:o,dynamicTools:c}=this.params;return{hasDesktopRuntime:!0,usesDesktopMcp:HE(o),readDynamicTools:e=>c.request(e),traceRequest(e){return e}}}}",
+    `function ${predicate}(e){return e===\`local\`}class Nkr{constructor(e){this.params=e}readInputs(){let{hostId:${hostId},dynamicTools:${dynamicTools}}=this.params;return{hasDesktopRuntime:!0,usesDesktopMcp:${predicate}(${hostId}),readDynamicTools:e=>${dynamicTools}.request(e),traceRequest(e){return e}}}}`,
     'async function LBt({readDynamicTools,usesDesktopMcp,config}){let n=await readDynamicTools({featureOverrides:{apps:!0}});return usesDesktopMcp?{...config,"mcp_servers.codex_app.enabled_tools":n}:config}',
-    "globalThis.seen=null;globalThis.make=async hostId=>{let inputs=new Nkr({hostId,dynamicTools:{request:async e=>{globalThis.seen=e;return e.featureOverrides?.thread_tools===!0?[`create_thread`,`list_threads`,`read_thread`,`wait_threads`,`send_message_to_thread`]:[]}}}).readInputs();return LBt({readDynamicTools:inputs.readDynamicTools,usesDesktopMcp:inputs.usesDesktopMcp,config:{}})};",
+    'globalThis.seen=null;globalThis.make=async hostId=>{let inputs=new Nkr({hostId,dynamicTools:{request:async e=>{globalThis.seen=e;return e.featureOverrides?.thread_tools===!0?[\`create_thread\`,\`list_threads\`,\`read_thread\`,\`wait_threads\`,\`send_message_to_thread\`]:[]}}}).readInputs();return LBt({readDynamicTools:inputs.readDynamicTools,usesDesktopMcp:inputs.usesDesktopMcp,config:{}})};',
   ].join("");
 
-  const before = vm.createContext({});
-  vm.runInContext(source, before);
-  assert.deepEqual(
-    Array.from((await before.make("local"))["mcp_servers.codex_app.enabled_tools"]),
-    [],
-  );
+  const assertScenario = async (source) => {
+    const before = vm.createContext({});
+    vm.runInContext(source, before);
+    assert.deepEqual(
+      Array.from((await before.make("local"))["mcp_servers.codex_app.enabled_tools"]),
+      [],
+    );
 
-  const patched = applyLinuxCodexAppThreadToolsPatch(source);
-  assert.notEqual(patched, source);
-  assert.match(patched, /codexLinuxCodexAppThreadTools/);
-  const context = vm.createContext({});
-  vm.runInContext(patched, context);
-  assert.deepEqual(
-    Array.from((await context.make("local"))["mcp_servers.codex_app.enabled_tools"]),
-    ["create_thread", "list_threads", "read_thread", "wait_threads", "send_message_to_thread"],
-  );
-  assert.equal(context.seen.featureOverrides.apps, true);
-  assert.equal(context.seen.featureOverrides.thread_tools, true);
-  assert.deepEqual(Object.keys(await context.make("remote")), []);
-  assert.equal(applyLinuxCodexAppThreadToolsPatch(patched), patched);
+    const patched = applyLinuxCodexAppThreadToolsPatch(source);
+    assert.notEqual(patched, source);
+    assert.match(patched, /codexLinuxCodexAppThreadTools/);
+    const context = vm.createContext({});
+    vm.runInContext(patched, context);
+    assert.deepEqual(
+      Array.from((await context.make("local"))["mcp_servers.codex_app.enabled_tools"]),
+      ["create_thread", "list_threads", "read_thread", "wait_threads", "send_message_to_thread"],
+    );
+    assert.equal(context.seen.featureOverrides.apps, true);
+    assert.equal(context.seen.featureOverrides.thread_tools, true);
+    assert.deepEqual(Object.keys(await context.make("remote")), []);
+    assert.equal(applyLinuxCodexAppThreadToolsPatch(patched), patched);
+  };
+
+  for (const [name, fixture] of [
+    ["previous 26.831 shape", { predicate: "HE", hostId: "o", dynamicTools: "c" }],
+    ["current 26.917 shape", { predicate: "Mv", hostId: "a", dynamicTools: "s" }],
+  ]) {
+    await t.test(`applies and stays scoped for the ${name}`, async () => {
+      await assertScenario(buildSource(fixture));
+    });
+  }
 });
 
 test("computer-use-linux staging consumes release artifacts without invoking Cargo", () => {

@@ -29,8 +29,10 @@ const STORE_VIEW_METHOD = new RegExp(
 );
 const PRIVATE_STORE_DELETE_METHOD = new RegExp(
   `async delete\\(\\{id:(${IDENT})\\}\\)\\{return this\\.#(${IDENT})\\(\\1,null\\)\\}` +
-    `async#\\2\\((${IDENT}),(${IDENT})\\)\\{[^{}]*?let (${IDENT})=(${IDENT})\\.(${IDENT})\\(\\3\\),` +
-    `(${IDENT})=\\6\\.(${IDENT})\\(\\3\\),`,
+    `async#\\2\\((${IDENT}),(${IDENT})\\)\\{\\4\\?\\.assertCurrent\\(\\);` +
+    `let\\{item:(${IDENT}),status:(${IDENT})\\}=this\\.habitatAutomationsService\\?` +
+    `await this\\.habitatAutomationsService\\.delete\\(\\3\\):` +
+    `\\{item:(${IDENT})\\.(${IDENT})\\(\\3\\),status:\\7\\.(${IDENT})\\(\\3\\)\\},`,
   "gu",
 );
 const CLASS_OPEN = new RegExp(
@@ -110,6 +112,9 @@ function classDelegatesToHandler(classContract, handlerName) {
   const privateDelegation = new RegExp(
     `executeUpdateTool\\((${IDENT})\\)\\{return this\\.#(${IDENT})\\(\\1,this\\)\\}` +
       `[\\s\\S]*?#\\2\\((${IDENT}),(${IDENT})\\)\\{return \\3\\.hostId===\`local\`\\?` +
+      `this\\.habitatAutomationsService\\?\\.isLocalMigrationActive\\(\\)\\?` +
+      `Promise\\.resolve\\(\\{response:\\{success:!1,contentItems:\\[\\{type:\`inputText\`,text:` +
+      `\`Local automation changes must use the Automations app after migration consent\\.\`\\}\\]\\}\\}\\):` +
       `${escapedHandlerName}\\(\\4,\\3,`,
     "u",
   );
@@ -252,8 +257,8 @@ function applyObservableAutomationViewPatch(source) {
   const viewBranch = observableViewBranch(argumentValue, host, outputFunction);
 
   const storeId = contract.linkedStore.store[3];
-  const storeModule = contract.linkedStore.store[6];
-  const readMethod = contract.linkedStore.store[7];
+  const storeModule = contract.linkedStore.store[7];
+  const readMethod = contract.linkedStore.store[8];
   const viewMethod = observableViewMethod(storeId, storeModule, readMethod);
 
   const patched = source
