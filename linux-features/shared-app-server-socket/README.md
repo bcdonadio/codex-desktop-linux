@@ -24,6 +24,12 @@ Desktop-owner marker, the same private authority starts as `app-server
 --remote-control --listen unix://PATH`. Missing, malformed, or symlinked markers
 leave the shared authority in its ordinary non-Remote-Control mode.
 
+The bundled CLI may publish the requested socket as a symlink to a private
+socket directory. Startup, attached CLI verification, and orphan cleanup
+validate the alias and its target, including ownership, directory permissions,
+and listener identity. Cleanup removes only the owned alias; the CLI owns the
+target socket. Unsafe targets and replaced aliases fail closed.
+
 The feature preserves the configuration overrides supplied by the official
 local transport. It forwards each opaque override as an ordered `-c` argument
 before the `app-server` subcommand when it starts the shared authority. It does

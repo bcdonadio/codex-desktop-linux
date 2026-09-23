@@ -90,10 +90,7 @@ test("drifted, duplicate, and mixed contracts remain byte-identical", () => {
   const drifted = current.replace("process.platform!==`darwin`", "process.platform===`darwin`");
   const unrelatedLookalike =
     "function unrelated(){let x=process.platform!==`darwin`||i.length===0?[]:[...i.map(({label:e})=>({label:e,enabled:!1}))];return[x]}";
-  const retiredAssignedShape = current.replace(
-    "s=[...a,process.platform",
-    "s=[...a,f=process.platform",
-  );
+  const retiredAssignedShape = current.replace("process.platform", "f=process.platform");
   const sources = [
     drifted,
     retiredAssignedShape,

@@ -19,10 +19,10 @@ Run the helper to install them automatically:
   bash scripts/install-deps.sh
 
 Or install manually:
-  sudo apt install nodejs curl dpkg-dev gnupg                                      # Debian/Ubuntu
-  sudo dnf install nodejs curl dpkg-dev gnupg2                                     # Fedora
-  sudo pacman -S nodejs curl dpkg gnupg                                            # Arch
-  sudo zypper install nodejs curl dpkg gpg2                                        # openSUSE
+  sudo apt install nodejs npm curl dpkg-dev gnupg                                    # Debian/Ubuntu
+  sudo dnf install nodejs npm curl dpkg-dev gnupg2                                   # Fedora
+  sudo pacman -S nodejs curl dpkg gnupg                                              # Arch
+  sudo zypper install nodejs npm curl dpkg gpg2                                      # openSUSE
 EOF
 }
 
@@ -105,7 +105,9 @@ parse_args() {
                 error "Unknown option: $1 (see --help)"
                 ;;
             *)
-                [ -z "$PROVIDED_UPSTREAM_DEB_PATH" ] || error "Only one upstream .deb path may be provided"
+                if [ -n "$PROVIDED_UPSTREAM_DEB_PATH" ] && [ "$1" != "$PROVIDED_UPSTREAM_DEB_PATH" ]; then
+                    error "Conflicting upstream .deb paths: $PROVIDED_UPSTREAM_DEB_PATH and $1"
+                fi
                 case "$1" in
                     *.dmg|*.DMG) error "macOS DMG inputs are no longer supported; provide the official Linux chatgpt_*.deb" ;;
                     *.deb) ;;
@@ -152,6 +154,14 @@ check_deps() {
     if [ ${#missing[@]} -ne 0 ]; then
         error "Missing dependencies: ${missing[*]}
 $(dependency_help)"
+    fi
+
+    # ASAR patching needs npx unless a packaged ASAR executable was supplied.
+    # Warn before downloading upstream; patch_asar() validates the tool again.
+    if [ -z "${CODEX_ASAR_BIN:-}" ] && ! command -v npx &>/dev/null; then
+        warn "npx not found on PATH: the required ASAR patch will fail." \
+            "Install npm (Debian/Ubuntu: sudo apt install npm) or ensure the version-manager" \
+            "Node bin directory is on PATH for this shell/service."
     fi
 
     info "All system dependencies found"
