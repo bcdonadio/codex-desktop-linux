@@ -64,13 +64,45 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const [reportPath, asarPath, helperPath] = process.argv.slice(2);
 const { createPatchReport } = require(helperPath);
+const sha256 = crypto.createHash("sha256").update(fs.readFileSync(asarPath)).digest("hex");
 const report = createPatchReport();
 report.upstreamAppAsar = {
-  sha256: crypto.createHash("sha256").update(fs.readFileSync(asarPath)).digest("hex"),
+  sha256,
   preservedByteForByte: true,
 };
+report.outputAppAsar = { sha256 };
 fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
 NODE
+}
+
+# Resolve the ASAR CLI to a real executable path and invoke it directly.
+#
+# `npx --yes @electron/asar` re-parses its arguments through a shell on POSIX,
+# and that shell performs brace expansion: the `{*.node,*.so,*.dylib}` unpack
+# glob and multi-directory `--unpack-dir "{a,b}"` patterns reach asar as
+# separate words, so asar silently honors only the first alternative. Calling
+# the resolved CLI keeps glob arguments intact.
+resolve_asar_command() {
+    if [ -n "${CODEX_ASAR_BIN:-}" ]; then
+        [ -x "$CODEX_ASAR_BIN" ] || error "Configured ASAR tool is not executable: $CODEX_ASAR_BIN"
+        printf '%s\n' "$CODEX_ASAR_BIN"
+        return 0
+    fi
+
+    # The Ubuntu/Debian nodejs package ships node without npm/npx, and
+    # check_deps() can only warn. Fail with actionable guidance here.
+    command -v npx >/dev/null 2>&1 || error \
+        "npx is required to patch app.asar with enabled feature descriptors, but was not found on PATH." \
+        "Install npm (Debian/Ubuntu: sudo apt install npm) or make the version-manager Node bin directory" \
+        "visible to this shell, then retry."
+
+    local asar_cli
+    asar_cli="$(npx --yes --package=@electron/asar -- sh -c 'command -v asar' 2>/dev/null | tail -n 1)"
+    [ -n "$asar_cli" ] && [ -x "$asar_cli" ] || error \
+        "Could not resolve the @electron/asar CLI through npx." \
+        "Set CODEX_ASAR_BIN to an existing asar executable, then retry." \
+        "Resolved path: ${asar_cli:-<none>}"
+    printf '%s\n' "$asar_cli"
 }
 
 patch_asar() {
@@ -80,9 +112,11 @@ patch_asar() {
     local patch_report_json="${CODEX_PATCH_REPORT_JSON:-$WORK_DIR/patch-report.json}"
     local descriptor_count
     local core_descriptor_count
+    local unpack_dir_pattern
     local upstream_sha
     local patched_sha
     local -a asar_command
+    local -a asar_pack_command
 
     [ -f "$app_asar" ] || error "app.asar not found in $resources_dir"
     core_descriptor_count="$(node - "$SCRIPT_DIR/scripts/patches/runner.js" <<'NODE'
@@ -99,21 +133,11 @@ NODE
         return 0
     fi
 
-    if [ -n "${CODEX_ASAR_BIN:-}" ]; then
-        [ -x "$CODEX_ASAR_BIN" ] || error "Configured ASAR tool is not executable: $CODEX_ASAR_BIN"
-        asar_command=("$CODEX_ASAR_BIN")
-    else
-        # The Ubuntu/Debian nodejs package ships node without npm/npx, and
-        # check_deps() can only warn. Fail with actionable guidance here.
-        command -v npx >/dev/null 2>&1 || error \
-            "npx is required to patch app.asar with enabled feature descriptors, but was not found on PATH." \
-            "Install npm (Debian/Ubuntu: sudo apt install npm) or make the version-manager Node bin directory" \
-            "visible to this shell, then retry."
-        asar_command=(npx --yes @electron/asar)
-    fi
+    asar_command=("$(resolve_asar_command)")
 
     upstream_sha="$(sha256sum "$app_asar" | awk '{print $1}')"
     info "Extracting a temporary app.asar copy for $descriptor_count active descriptor(s)"
+    "${asar_command[@]}" list --is-pack "$app_asar" > "$WORK_DIR/app.asar.upstream-layout"
     "${asar_command[@]}" extract "$app_asar" "$WORK_DIR/app-extracted"
     if [ -d "$resources_dir/app.asar.unpacked" ]; then
         cp -a "$resources_dir/app.asar.unpacked/." "$WORK_DIR/app-extracted/"
@@ -133,12 +157,25 @@ NODE
         return 0
     fi
 
-    (cd "$WORK_DIR/app-extracted" && find . -type f -printf '%P\n' | LC_ALL=C sort) > "$WORK_DIR/app.asar.ordering"
-    "${asar_command[@]}" pack \
+    node "$SCRIPT_DIR/scripts/patches/lib/asar-layout.js" \
+        "$WORK_DIR/app.asar.upstream-layout" \
+        "$WORK_DIR/app-extracted" \
+        "$WORK_DIR/app.asar.ordering" \
+        "$WORK_DIR/app.asar.unpack-dir-pattern"
+    unpack_dir_pattern="$(<"$WORK_DIR/app.asar.unpack-dir-pattern")"
+    asar_pack_command=("${asar_command[@]}" pack \
         "$WORK_DIR/app-extracted" \
         "$WORK_DIR/app.asar" \
         --ordering "$WORK_DIR/app.asar.ordering" \
-        --unpack "{*.node,*.so,*.dylib}"
+        --unpack "{*.node,*.so,*.dylib}")
+    if [ -n "$unpack_dir_pattern" ]; then
+        asar_pack_command+=(--unpack-dir "$unpack_dir_pattern")
+    fi
+    "${asar_pack_command[@]}"
+    "${asar_command[@]}" list --is-pack "$WORK_DIR/app.asar" > "$WORK_DIR/app.asar.output-layout"
+    node "$SCRIPT_DIR/scripts/patches/lib/asar-layout.js" verify \
+        "$WORK_DIR/app.asar.upstream-layout" \
+        "$WORK_DIR/app.asar.output-layout"
     mv "$WORK_DIR/app.asar" "$app_asar"
     if [ -d "$WORK_DIR/app.asar.unpacked" ]; then
         remove_tree_safely "$resources_dir/app.asar.unpacked"
