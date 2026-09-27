@@ -90,6 +90,27 @@ test("local Desktop threads enable the plugin transport that owns automation_upd
   assert.equal(applyAutomationPluginEnablePatch(patched), patched);
 });
 
+test("current shared bundle selects the local Desktop MCP plugin config owner", async () => {
+  const source = [
+    "const pluginKey=`plugins.codex-app-tools@openai-bundled.mcp_servers.codex_app.enabled_tools`,legacyKey=`mcp_servers.codex_app.enabled_tools`;",
+    "function Kut(version){return version?pluginKey:legacyKey}",
+    "async function build(local,usePlugin){let config={config:{unrelated:7}},n=[{type:`namespace`,tools:[{name:`automation_update`}]}],i=n.flatMap(e=>e.type===`namespace`?e.tools:[e]),client={getAppServerVersion:()=>usePlugin},inputs={usesDesktopMcp:local};inputs.usesDesktopMcp&&(config.config={...config.config,[Kut(client.getAppServerVersion())]:i.map(({name:e})=>e)});return config.config}",
+    "globalThis.build=build;",
+  ].join(";");
+  const descriptor = descriptors.find(({ id }) => id === "automation-plugin-enable");
+  assert.equal(descriptor.pattern.test("app-shared-current.js"), true);
+  assert.equal(descriptor.pattern.test("app-initial-current.js"), false);
+  assert.equal(descriptor.assetMatch(source), true);
+  const patched = descriptor.apply(source);
+  const context = vm.createContext({});
+  vm.runInContext(patched, context);
+  assert.deepEqual(Array.from((await context.build(true, true))["plugins.codex-app-tools@openai-bundled.mcp_servers.codex_app.enabled_tools"]), ["automation_update"]);
+  assert.equal((await context.build(true, true))["plugins.codex-app-tools@openai-bundled.mcp_servers.codex_app.enabled"], true);
+  assert.equal((await context.build(true, false))["mcp_servers.codex_app.enabled"], true);
+  assert.deepEqual(Object.keys(await context.build(false, true)), ["unrelated"]);
+  assert.equal(descriptor.apply(patched), patched);
+});
+
 test("automation plugin enablement rejects an unexpected enabled-tools key contract", () => {
   const source = [
     "const pluginKey=`plugins.codex-app-tools@openai-bundled.mcp_servers.codex_app.tools`,legacyKey=`mcp_servers.codex_app.tools`;",

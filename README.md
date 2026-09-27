@@ -248,7 +248,6 @@ requirements, known limitations, configuration, and tests.
 | `record-and-replay` | Record a Linux demonstration and turn it into a reusable skill | [Docs](linux-features/record-and-replay/README.md) |
 | `remote-control-ui` | Expose experimental remote-control settings on Linux | [Docs](linux-features/remote-control-ui/README.md) |
 | `remote-mobile-control` | Experimental Linux remote-host and outbound-control flows | [Docs](linux-features/remote-mobile-control/README.md) |
-| `realtime-voice-sidebar` | Expose the upstream realtime Voice sidebar entrypoint when explicitly enabled | [Docs](linux-features/realtime-voice-sidebar/README.md) |
 | `shallow-repository-watches` | Avoid recursive main-thread walks for transient repository previews | [Docs](linux-features/shallow-repository-watches/README.md) |
 | `shared-app-server-socket` | Share one protocol-transparent Unix app-server socket | [Docs](linux-features/shared-app-server-socket/README.md) |
 | `thorium-chrome-plugin` | Add Thorium to the official bundled Chrome integration | [Docs](linux-features/thorium-chrome-plugin/README.md) |
@@ -259,9 +258,9 @@ With `shared-app-server-socket` enabled and Desktop running, use
 `codex-desktop --cli` to attach Codex CLI to Desktop's app-server. See
 [Attached CLI](linux-features/shared-app-server-socket/README.md#attached-cli).
 
-Account rollouts and server-side ChatGPT features remain controlled by OpenAI.
-The `realtime-voice-sidebar` feature is an explicit UI override only; rebuilding
-does not grant backend entitlement or unlock an account rollout.
+The retired `realtime-voice-sidebar` override is ignored in existing local
+configs. The current upstream app provides Voice through the composer, subject
+to OpenAI account rollout and backend entitlement.
 
 ## Configure optional features
 

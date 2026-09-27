@@ -230,7 +230,6 @@ Nix 用户应从 profile、Home Manager 配置或 NixOS module 中删除该包�
 | `record-and-replay` | 将 Linux 操作演示录制为可复用 skill | [文档](linux-features/record-and-replay/README.md) |
 | `remote-control-ui` | 显示实验性 remote-control 设置 | [文档](linux-features/remote-control-ui/README.md) |
 | `remote-mobile-control` | 实验性 Linux remote-host / outbound-control flow | [文档](linux-features/remote-mobile-control/README.md) |
-| `realtime-voice-sidebar` | 在显式启用时显示上游 realtime Voice 侧栏入口 | [文档](linux-features/realtime-voice-sidebar/README.md) |
 | `shallow-repository-watches` | 避免临时 repo preview 在主线程递归遍历 | [文档](linux-features/shallow-repository-watches/README.md) |
 | `shared-app-server-socket` | 共享 protocol-transparent Unix app-server socket | [文档](linux-features/shared-app-server-socket/README.md) |
 | `thorium-chrome-plugin` | 为官方 Chrome integration 添加 Thorium | [文档](linux-features/thorium-chrome-plugin/README.md) |
@@ -241,9 +240,8 @@ Nix 用户应从 profile、Home Manager 配置或 NixOS module 中删除该包�
 `codex-desktop --cli` 将 Codex CLI 连接到 Desktop 的 app-server。详见
 [CLI 连接说明](linux-features/shared-app-server-socket/README.md#attached-cli)。
 
-ChatGPT account rollout 和 server-side 功能仍由 OpenAI 控制。
-`realtime-voice-sidebar` 只是显式的 UI override；重新构建本项目不会授予
-backend entitlement，也不会解锁账号功能。
+已停用的 `realtime-voice-sidebar` 覆盖项会在现有本地配置中被忽略。当前上游应用
+通过输入框提供 Voice；是否可用仍取决于 OpenAI 的账号开放范围和后端权限。
 
 ## 配置可选扩展
 
