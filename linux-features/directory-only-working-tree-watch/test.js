@@ -103,15 +103,15 @@ const CURRENT_WORKER_LOCAL_FILE_WATCH = [
 ].join("");
 
 const CURRENT_SRC_LOCAL_FILE_WATCH = [
-  "async startFileWatch(e){let t=gb(),n=!1,r=await this.platformPath(),",
-  "a=(0,c.watch)(this.getFileSystemPath(e.path),{recursive:e.recursive},(t,n)=>{",
-  "let a=n==null?null:r.join(e.path,...n.split(this.runsInsideWsl?",
-  "i.default.win32.sep:i.default.sep)),o=a==null?[]:[a];a!=null&&t===`rename`&&",
-  "e.renameEventHandling===`changed-path-with-parent-directory`&&o.push(r.dirname(a)),",
-  "e.onChange({changedPaths:o})}),o=e=>{n||(n=!0,a.close(),t.resolve(e))};",
-  "return a.on(`error`,e=>{o({reason:`watch-error`,error:e})}),{coverage:{recursive:",
+  "async startFileWatch(e){let t=P(),n=!1,r=await this.platformPath(),",
+  "i=(0,d.watch)(this.getFileSystemPath(e.path),{recursive:e.recursive},(t,n)=>{",
+  "let i=n==null?null:r.join(e.path,...n.split(this.runsInsideWsl?",
+  "p.default.win32.sep:p.default.sep)),a=i==null?[]:[i];i!=null&&t===`rename`&&",
+  "e.renameEventHandling===`changed-path-with-parent-directory`&&a.push(r.dirname(i)),",
+  "e.onChange({changedPaths:a})}),a=e=>{n||(n=!0,i.close(),t.resolve(e))};",
+  "return i.on(`error`,e=>{a({reason:`watch-error`,error:e})}),{coverage:{recursive:",
   "e.recursive,typedPathChanges:!1},path:e.path,closed:t.promise,dispose:async()=>{",
-  "o({reason:`disposed`})}}}",
+  "a({reason:`disposed`})}}}",
 ].join("");
 
 const CURRENT_WORKER_REMOTE_FILE_WATCH = [
@@ -169,9 +169,9 @@ function currentWorkerSource(route = CURRENT_PARCEL_ROUTE) {
 
 function currentSrcSource() {
   return [
-    "var CurrentSrcRemote=class{",
+    "var CurrentBootstrapRemote=class{",
     CURRENT_SRC_REMOTE_FILE_WATCH,
-    "};var are=class{runsInsideWsl;workspaceRoot=new SrcRoot(this);hostConfig={id:`local`,display_name:`Local`," +
+    "};var dk=class{runsInsideWsl;workspaceRoot=new Fo(this);hostConfig={id:`local`,display_name:`Local`," +
       "kind:`local`};id=`local`;isLocal=!0;",
     CURRENT_SRC_LOCAL_FILE_WATCH,
     "};",
@@ -182,7 +182,7 @@ function currentBundlePair(t, overrides = {}) {
   const extractedDir = tempDirectory(t, "directory-watch-current-contract-");
   const buildDir = path.join(extractedDir, ".vite", "build");
   const sources = new Map([
-    ["src-Cz_uUmVl.js", overrides.src ?? currentSrcSource()],
+    ["bootstrap-C-A2NQZn.js", overrides.src ?? currentSrcSource()],
     ["worker.js", overrides.worker ?? currentWorkerSource()],
     ...Object.entries(overrides.extra ?? {}),
   ]);
@@ -376,12 +376,12 @@ test("feature patch reports drift instead of patching an ambiguous bundle", () =
   assert.equal(descriptor.status(result, []).status, "skipped-optional");
 });
 
-test("bundle discovery patches the current src and worker copies", (t) => {
+test("bundle discovery patches the current bootstrap and worker copies", (t) => {
   const extractedDir = tempDirectory(t, "directory-watch-bundle-");
   const buildDir = path.join(extractedDir, ".vite", "build");
   writeFile(path.join(buildDir, "unrelated.js"), "const unrelated=true;");
   const targets = [
-    path.join(buildDir, "src-Cz_uUmVl.js"),
+    path.join(buildDir, "bootstrap-C-A2NQZn.js"),
     path.join(buildDir, "worker.js"),
   ];
   writeFile(targets[0], currentSrcSource());
@@ -404,7 +404,7 @@ test("bundle discovery patches the current src and worker copies", (t) => {
   assert.equal(first.matched, 2);
   assert.equal(first.changed, 2);
   assert.deepEqual(first.targets, [
-    path.join(".vite", "build", "src-Cz_uUmVl.js"),
+    path.join(".vite", "build", "bootstrap-C-A2NQZn.js"),
     path.join(".vite", "build", "worker.js"),
   ]);
   for (const target of targets) {
@@ -427,7 +427,7 @@ test("bundle discovery rejects a missing Parcel route without changing either bu
   const extractedDir = tempDirectory(t, "directory-watch-missing-parcel-");
   const buildDir = path.join(extractedDir, ".vite", "build");
   const sources = new Map([
-    ["src-current.js", currentBundleFixture()],
+    ["bootstrap-current.js", currentBundleFixture()],
     ["worker.js", currentBundleFixture()],
   ]);
   for (const [name, source] of sources) writeFile(path.join(buildDir, name), source);
@@ -452,7 +452,7 @@ test("bundle discovery rejects duplicate Parcel routes without changing either b
   const extractedDir = tempDirectory(t, "directory-watch-duplicate-parcel-");
   const buildDir = path.join(extractedDir, ".vite", "build");
   const sources = new Map([
-    ["src-current.js", currentBundleFixture()],
+    ["bootstrap-current.js", currentBundleFixture()],
     [
       "worker.js",
       `${currentWorkerSource()}${CURRENT_GIT_ROUTE_PREFIX}` +
@@ -482,7 +482,7 @@ test("bundle discovery rejects a Parcel route outside worker.js without changing
   const buildDir = path.join(extractedDir, ".vite", "build");
   const sources = new Map([
     [
-      "src-current.js",
+      "bootstrap-current.js",
       `${currentBundleFixture()}${CURRENT_PARCEL_HELPER}${CURRENT_GIT_ROUTE_PREFIX}` +
         `${CURRENT_PARCEL_ROUTE}${CURRENT_GIT_ROUTE_SUFFIX}`,
     ],
@@ -506,10 +506,10 @@ test("bundle discovery rejects a Parcel route outside worker.js without changing
   }
 });
 
-test("bundle discovery rejects copies outside the current src and worker pair", (t) => {
+test("bundle discovery rejects copies outside the current bootstrap and worker pair", (t) => {
   const extractedDir = tempDirectory(t, "directory-watch-ambiguous-");
   const buildDir = path.join(extractedDir, ".vite", "build");
-  for (const name of ["src-first.js", "src-second.js", "worker.js"]) {
+  for (const name of ["bootstrap-first.js", "bootstrap-second.js", "worker.js"]) {
     writeFile(path.join(buildDir, name), currentBundleFixture());
   }
 
@@ -536,14 +536,14 @@ test("patches the pristine current bundle contract and accepts only its exact co
   assert.equal(first.matched, 2);
   assert.equal(first.changed, 2);
   assert.deepEqual(first.targets, [
-    path.join(".vite", "build", "src-Cz_uUmVl.js"),
+    path.join(".vite", "build", "bootstrap-C-A2NQZn.js"),
     path.join(".vite", "build", "worker.js"),
   ]);
 
   const completed = readBundlePair(candidate);
   assert.notDeepEqual(completed, pristine);
   const worker = completed.get("worker.js");
-  const src = completed.get("src-Cz_uUmVl.js");
+  const src = completed.get("bootstrap-C-A2NQZn.js");
   assert.equal(worker.split(PARCEL_WATCH_MARKER).length - 1, 1);
   assert.match(worker, new RegExp(`function ${HELPER_NAME}\\(`, "u"));
   assert.match(src, new RegExp(`function ${HELPER_NAME}\\(`, "u"));
@@ -857,10 +857,10 @@ test("restores both current bundles after injected writes and permits retry", (t
 
 test("rejects non-lossless UTF-8 bundles without changing their bytes", (t) => {
   const candidate = currentBundlePair(t);
-  const srcPath = path.join(candidate.buildDir, "src-Cz_uUmVl.js");
+  const srcPath = path.join(candidate.buildDir, "bootstrap-C-A2NQZn.js");
   fs.appendFileSync(srcPath, Buffer.from([0xff]));
   const before = new Map(
-    ["src-Cz_uUmVl.js", "worker.js"].map((name) => [
+    ["bootstrap-C-A2NQZn.js", "worker.js"].map((name) => [
       name,
       fs.readFileSync(path.join(candidate.buildDir, name)),
     ]),
@@ -890,7 +890,7 @@ test("rejects non-lossless UTF-8 bundles without changing their bytes", (t) => {
 test("keeps transaction byte oracles private from injected writers", (t) => {
   const candidate = currentBundlePair(t);
   const before = new Map(
-    ["src-Cz_uUmVl.js", "worker.js"].map((name) => [
+    ["bootstrap-C-A2NQZn.js", "worker.js"].map((name) => [
       name,
       fs.readFileSync(path.join(candidate.buildDir, name)),
     ]),
@@ -921,7 +921,7 @@ test("keeps transaction byte oracles private from injected writers", (t) => {
 test("keeps transaction byte oracles private from injected readers", (t) => {
   const candidate = currentBundlePair(t);
   const before = new Map(
-    ["src-Cz_uUmVl.js", "worker.js"].map((name) => [
+    ["bootstrap-C-A2NQZn.js", "worker.js"].map((name) => [
       name,
       fs.readFileSync(path.join(candidate.buildDir, name)),
     ]),
@@ -1041,8 +1041,8 @@ test("reports failed-integrity when rollback cannot prove original current bundl
     /rollback byte verification failed.*rollback write also failed: simulated rollback failure/u,
   );
   assert.equal(
-    fs.readFileSync(path.join(candidate.buildDir, "src-Cz_uUmVl.js"), "utf8"),
-    before.get("src-Cz_uUmVl.js"),
+    fs.readFileSync(path.join(candidate.buildDir, "bootstrap-C-A2NQZn.js"), "utf8"),
+    before.get("bootstrap-C-A2NQZn.js"),
   );
   assert.equal(
     fs.readFileSync(path.join(candidate.buildDir, "worker.js"), "utf8"),
