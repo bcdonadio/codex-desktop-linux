@@ -20,6 +20,7 @@ use evdev::{
     uinput::VirtualDevice, AbsInfo, AbsoluteAxisCode, AttributeSet, EventType, InputEvent, KeyCode,
     PropType, RelativeAxisCode, UinputAbsSetup,
 };
+use std::path::PathBuf;
 
 pub struct AbsPointer {
     device: VirtualDevice,
@@ -32,6 +33,16 @@ impl AbsPointer {
     /// (the portal screenshot dimensions). Blocks ~`settle` ms so libinput picks
     /// the device up before the first event.
     pub fn create(width: i32, height: i32) -> Result<Self> {
+        Self::create_with_settle(width, height, true)
+    }
+
+    /// Create without the non-Mutter settle delay; Mutter readiness is confirmed
+    /// by the server through InputMapping before this device is used.
+    pub fn create_without_settle(width: i32, height: i32) -> Result<Self> {
+        Self::create_with_settle(width, height, false)
+    }
+
+    fn create_with_settle(width: i32, height: i32, settle: bool) -> Result<Self> {
         let width = width.max(1);
         let height = height.max(1);
         // value, min, max, fuzz, flat, resolution. resolution=1 unit/px.
@@ -59,8 +70,10 @@ impl AbsPointer {
             .build()
             .context("failed to create uinput absolute pointer device")?;
 
-        // Give udev/libinput time to enumerate the new device.
-        sleep(Duration::from_millis(500));
+        // Other desktops have no compositor mapping acknowledgement.
+        if settle {
+            sleep(Duration::from_millis(500));
+        }
 
         Ok(Self {
             device,
@@ -99,6 +112,18 @@ impl AbsPointer {
                 .context("failed to emit absolute pointer wheel motion")?;
         }
         Ok(())
+    }
+
+    /// Return the `/dev/input/eventN` node used by Mutter to recognize this
+    /// virtual device.
+    pub fn device_node_path(&mut self) -> Result<PathBuf> {
+        self.device
+            .enumerate_dev_nodes_blocking()
+            .context("failed to enumerate the uinput device node")?
+            .next()
+            .transpose()
+            .context("failed to read the uinput device node")?
+            .ok_or_else(|| anyhow!("uinput device has no event node"))
     }
 
     /// Move to `(x, y)` then press+release `button` `count` times.
