@@ -58,6 +58,20 @@ They accept `maxWidth`, `maxHeight`, `maxBytes`, `scale`, `format`, and `quality
 sets. Use these limits to request more detail deliberately instead of repeatedly
 loading a large default observation.
 
+For contained GNOME sessions, automatic screenshot capture prefers the
+extension's file descriptor method. The native helper passes a private,
+mode-0600 temporary file descriptor and unlinks the file immediately; this does
+not require sharing
+`/tmp` with the contained app. If the extension is missing or too old, run
+`setup_window_targeting` to install or update it. Reload the extension, or log
+out and back in if it was already loaded. Explicit screenshot backend overrides
+and the other desktop screenshot backends remain available.
+
+Window IDs are snapshots and can become stale as windows open or close. If a
+window lookup fails, call `listWindows()` again and pass the selected current
+entry as `getApp({windowId: window.id})`. The adapter does not silently retarget
+the request or replay it against another window.
+
 Native control retains OS permission requirements and target-window focus
 checks. Consequential-action approval remains the host/model's responsibility;
 Linux does not provide saved per-app approvals through this integration.

@@ -10,6 +10,16 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 const SERVICE_NAME = 'com.openai.Codex.WindowControl';
 const OBJECT_PATH = '/com/openai/Codex/WindowControl';
 const BACKEND = 'gnome-shell-extension';
+const UnixOutputStream = (() => {
+    try {
+        const outputStream = imports.gi.GioUnix?.OutputStream;
+        if (outputStream)
+            return outputStream;
+    } catch (_) {
+        // GioUnix is unavailable on older supported GNOME/GLib versions.
+    }
+    return Gio.UnixOutputStream;
+})();
 
 const WINDOW_CONTROL_XML = `
 <node>
@@ -24,6 +34,11 @@ const WINDOW_CONTROL_XML = `
     </method>
     <method name="CaptureScreenshot">
       <arg name="filename" type="s" direction="in"/>
+      <arg name="ok" type="b" direction="out"/>
+      <arg name="message" type="s" direction="out"/>
+    </method>
+    <method name="CaptureScreenshotToFd">
+      <arg name="fd" type="h" direction="in"/>
       <arg name="ok" type="b" direction="out"/>
       <arg name="message" type="s" direction="out"/>
     </method>
@@ -160,6 +175,123 @@ class WindowControlDBus extends GObject.Object {
                 false,
                 `Failed to start GNOME Shell screenshot: ${error.message}`,
             ]));
+        }
+    }
+
+    CaptureScreenshotToFdAsync([fdIndex], invocation) {
+        let ownedFd = null;
+        let stream = null;
+        let timeoutId = 0;
+        let replied = false;
+        let callbackHandled = false;
+        let timedOut = false;
+        const reply = (ok, message) => {
+            if (replied)
+                return;
+            replied = true;
+            invocation.return_value(new GLib.Variant('(bs)', [ok, message]));
+        };
+        const clearTimer = () => {
+            if (!timeoutId)
+                return;
+            const sourceId = timeoutId;
+            timeoutId = 0;
+            try {
+                GLib.source_remove(sourceId);
+            } catch (_) {
+                // The source may already have left the main loop.
+            }
+        };
+        const closeStream = () => {
+            const outputStream = stream;
+            stream = null;
+            outputStream?.close(null);
+        };
+
+        try {
+            if (!Number.isInteger(fdIndex) || fdIndex < 0)
+                throw new Error('Invalid screenshot fd index');
+
+            const fdList = invocation.get_message()?.get_unix_fd_list();
+            if (!fdList || fdIndex >= fdList.get_length())
+                throw new Error('Screenshot fd index is missing from the D-Bus message');
+
+            // Gio.UnixFDList.get() returns a duplicate owned by this handler.
+            ownedFd = fdList.get(fdIndex);
+            stream = UnixOutputStream.new(ownedFd, true);
+            ownedFd = null;
+
+            const screenshot = new Shell.Screenshot();
+            timeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 20_000, () => {
+                timeoutId = 0;
+                timedOut = true;
+                let message = 'GNOME Shell screenshot timed out after 20 seconds';
+                try {
+                    closeStream();
+                } catch (error) {
+                    message += `; failed to close screenshot stream: ${error.message}`;
+                }
+                reply(false, message);
+                return GLib.SOURCE_REMOVE;
+            });
+            screenshot.screenshot(false, stream, (_object, result) => {
+                if (callbackHandled)
+                    return;
+                callbackHandled = true;
+                if (timedOut) {
+                    try {
+                        screenshot.screenshot_finish(result);
+                    } catch (_) {
+                        // Finish late results for GIO cleanup without touching the closed stream.
+                    }
+                    return;
+                }
+
+                clearTimer();
+
+                let ok = false;
+                let message = 'Screenshot captured';
+                try {
+                    const finishResult = screenshot.screenshot_finish(result);
+                    ok = Array.isArray(finishResult)
+                        ? Boolean(finishResult[0])
+                        : Boolean(finishResult);
+                    if (!ok)
+                        message = 'GNOME Shell screenshot returned false';
+                    if (ok)
+                        stream.flush(null);
+                } catch (error) {
+                    ok = false;
+                    message = `GNOME Shell screenshot write failed: ${error.message}`;
+                }
+
+                try {
+                    closeStream();
+                } catch (error) {
+                    if (ok) {
+                        ok = false;
+                        message = `Failed to close screenshot stream: ${error.message}`;
+                    }
+                }
+                reply(ok, message);
+            });
+        } catch (error) {
+            clearTimer();
+            if (stream) {
+                try {
+                    closeStream();
+                } catch (_) {
+                    // Best effort cleanup after the original failure.
+                }
+            } else if (ownedFd !== null) {
+                try {
+                    GLib.close(ownedFd);
+                } catch (_) {
+                    // Preserve the original failure when raw-fd cleanup also fails.
+                }
+                ownedFd = null;
+            }
+            reply(false, `Failed to start GNOME Shell screenshot: ${error.message}`);
         }
     }
 

@@ -35,6 +35,20 @@ methods already emit the image and should not be emitted a second time.
 
 ## Runtime Dependencies
 
+For contained GNOME sessions, automatic screenshot capture prefers the Codex
+extension's file-descriptor method. The native helper passes a private mode-0600
+file descriptor and unlinks the file immediately, so the contained app does not
+need access to a shared `/tmp`. If the extension is missing or too old, run
+`setup_window_targeting` to install or update it. Reload the extension after
+setup; if it was already loaded, log out and back in when needed. Explicit
+screenshot backend overrides and the other desktop screenshot backends remain
+available.
+
+Window IDs are snapshots and may become stale as windows open or close. If a
+window lookup fails, call `listWindows()` again and pass a current entry to
+`getApp({windowId: window.id})`. Requests are not silently retargeted or replayed
+against another window.
+
 Install `ydotool` 1.0.3 or newer when you need the fallback input path. The
 backend probes the exact absolute move, wheel move, click, delayed key, and
 stdin typing command shapes it emits. Earlier or incompatible CLIs are rejected
