@@ -55,6 +55,15 @@ use zbus::{Connection as ZbusConnection, Proxy as ZbusProxy};
 const INPUT_COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
 const YDOTOOL_TYPE_CHARS_PER_SECOND: u64 = 20;
 const KDE_CLIPBOARD_DBUS_TIMEOUT: Duration = Duration::from_secs(3);
+const MUTTER_MAPPING_SERVICE: &str = "org.gnome.Mutter.InputMapping";
+const MUTTER_MAPPING_PATH: &str = "/org/gnome/Mutter/InputMapping";
+const MUTTER_MAPPING_INTERFACE: &str = "org.gnome.Mutter.InputMapping";
+const MUTTER_DEVICE_READY_TIMEOUT: Duration = Duration::from_secs(3);
+const MUTTER_DEVICE_POLL_INTERVAL: Duration = Duration::from_millis(35);
+const MUTTER_UNMAPPED_ERROR: &str =
+    "org.gtk.GDBus.UnmappedGError.Quark._g_2dio_2derror_2dquark.Code1";
+const MUTTER_MISSING_ERROR: &str =
+    "org.gtk.GDBus.UnmappedGError.Quark._g_2dio_2derror_2dquark.Code35";
 const KDE_KLIPPER_SERVICE: &str = "org.kde.klipper";
 const KDE_KLIPPER_PATH: &str = "/klipper";
 const KDE_KLIPPER_INTERFACE: &str = "org.kde.klipper.klipper";
@@ -101,6 +110,128 @@ fn sanitize_unsigned_integer_formats(value: &mut serde_json::Value) {
             _ => {}
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DeviceMappingStatus {
+    Ready,
+    Missing,
+    Pending,
+}
+
+fn classify_mutter_mapping(result: zbus::Result<(i32, i32, i32, i32)>) -> DeviceMappingStatus {
+    match result {
+        Ok(_rectangle) => DeviceMappingStatus::Ready,
+        Err(zbus::Error::MethodError(name, detail, _)) => {
+            classify_mutter_mapping_error(name.as_str(), detail.as_deref())
+        }
+        Err(_) => DeviceMappingStatus::Pending,
+    }
+}
+
+fn classify_mutter_mapping_error(name: &str, detail: Option<&str>) -> DeviceMappingStatus {
+    match (name, detail) {
+        (MUTTER_UNMAPPED_ERROR, Some("Device is not mapped to any output")) => {
+            DeviceMappingStatus::Ready
+        }
+        (MUTTER_MISSING_ERROR, Some("Device does not exist")) => DeviceMappingStatus::Missing,
+        // Every other error is rejected by the readiness waiter.
+        _ => DeviceMappingStatus::Pending,
+    }
+}
+
+async fn active_mutter_input_mapping_connection(
+) -> std::result::Result<Option<ZbusConnection>, String> {
+    timeout(MUTTER_DEVICE_READY_TIMEOUT, async {
+        let connection = ZbusConnection::session()
+            .await
+            .map_err(|error| format!("cannot check Mutter input readiness: {error}"))?;
+        let dbus = zbus::fdo::DBusProxy::new(&connection)
+            .await
+            .map_err(|error| format!("cannot query Mutter input readiness owner: {error}"))?;
+        let name = MUTTER_MAPPING_SERVICE
+            .try_into()
+            .map_err(|error| format!("invalid Mutter input service name: {error}"))?;
+        let owned = dbus
+            .name_has_owner(name)
+            .await
+            .map_err(|error| format!("cannot determine Mutter input readiness owner: {error}"))?;
+        Ok(owned.then_some(connection))
+    })
+    .await
+    .map_err(|_| "timed out checking Mutter input readiness owner; no input sent".to_string())?
+}
+
+async fn query_mutter_device_mapping(
+    connection: &ZbusConnection,
+    device_node: &str,
+) -> DeviceMappingStatus {
+    let proxy = match ZbusProxy::new(
+        connection,
+        MUTTER_MAPPING_SERVICE,
+        MUTTER_MAPPING_PATH,
+        MUTTER_MAPPING_INTERFACE,
+    )
+    .await
+    {
+        Ok(proxy) => proxy,
+        Err(_) => return DeviceMappingStatus::Pending,
+    };
+    let device_path = match zbus::zvariant::ObjectPath::try_from(device_node) {
+        Ok(path) => path,
+        Err(_) => return DeviceMappingStatus::Pending,
+    };
+    let result: zbus::Result<(i32, i32, i32, i32)> =
+        proxy.call("GetDeviceMapping", &(device_path,)).await;
+    classify_mutter_mapping(result)
+}
+
+async fn wait_for_mutter_mapping_ready<F, Fut>(
+    mut query: F,
+    deadline_after: Duration,
+) -> std::result::Result<(), String>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = DeviceMappingStatus>,
+{
+    let deadline = tokio::time::Instant::now() + deadline_after;
+    loop {
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if remaining.is_zero() {
+            break;
+        }
+        match timeout(remaining, query()).await {
+            Ok(DeviceMappingStatus::Ready) => return Ok(()),
+            Ok(DeviceMappingStatus::Missing) => {}
+            Ok(DeviceMappingStatus::Pending) => {
+                return Err(
+                    "Mutter returned an unexpected device readiness error; no input sent".into(),
+                );
+            }
+            Err(_) => break,
+        }
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if remaining.is_zero() {
+            break;
+        }
+        sleep(remaining.min(MUTTER_DEVICE_POLL_INTERVAL)).await;
+    }
+    Err(format!(
+        "device readiness was not confirmed within {} ms",
+        deadline_after.as_millis()
+    ))
+}
+
+fn cache_abs_pointer_after_readiness<T>(
+    cache: &Mutex<Option<T>>,
+    pointer: T,
+    readiness: std::result::Result<(), String>,
+) -> std::result::Result<(), String> {
+    readiness?;
+    *cache
+        .lock()
+        .map_err(|_| "uinput absolute pointer cache is poisoned".to_string())? = Some(pointer);
+    Ok(())
 }
 
 impl ComputerUseLinux {
@@ -548,40 +679,73 @@ impl ComputerUseLinux {
     /// Lazily create the uinput absolute pointer, sizing its ABS range to the
     /// logical desktop (the portal screenshot dimensions). Returns `false` if it
     /// can't be created or is disabled via `CU_DISABLE_ABS_POINTER` (or the
-    /// Codex embedded-build alias).
-    async fn ensure_abs_pointer(&self) -> bool {
+    /// Codex embedded-build alias). When Mutter owns InputMapping, it waits for
+    /// Mutter to recognize the exact uinput event node before caching the device.
+    async fn ensure_abs_pointer(&self) -> std::result::Result<bool, String> {
         if env_flag_enabled_any(&[
             "CU_DISABLE_ABS_POINTER",
             "CODEX_COMPUTER_USE_DISABLE_ABS_POINTER",
         ]) {
-            return false;
+            return Ok(false);
         }
         if self
             .abs_pointer
             .lock()
-            .map(|g| g.is_some())
-            .unwrap_or(false)
+            .map_err(|_| "uinput absolute pointer cache is poisoned".to_string())?
+            .is_some()
         {
-            return true;
+            return Ok(true);
         }
         let Ok(cap) = capture_screenshot_raw().await else {
-            return false;
+            return Ok(false);
         };
         self.cache_desktop_size(cap.width, cap.height);
-        match tokio::task::spawn_blocking(move || {
-            crate::abs_pointer::AbsPointer::create(cap.width as i32, cap.height as i32)
+        let mutter_connection = active_mutter_input_mapping_connection().await?;
+        let has_mutter = mutter_connection.is_some();
+        let mut pointer = match tokio::task::spawn_blocking(move || {
+            if has_mutter {
+                crate::abs_pointer::AbsPointer::create_without_settle(
+                    cap.width as i32,
+                    cap.height as i32,
+                )
+            } else {
+                crate::abs_pointer::AbsPointer::create(cap.width as i32, cap.height as i32)
+            }
         })
         .await
         {
-            Ok(Ok(pointer)) => {
-                if let Ok(mut guard) = self.abs_pointer.lock() {
-                    *guard = Some(pointer);
-                    return true;
-                }
-                false
-            }
-            _ => false,
-        }
+            Ok(Ok(pointer)) => pointer,
+            _ => return Ok(false),
+        };
+
+        let readiness = if let Some(connection) = mutter_connection {
+            let device_node = pointer
+                .device_node_path()
+                .map_err(|error| format!("failed to identify the uinput event node: {error:#}"))?
+                .to_string_lossy()
+                .into_owned();
+            let poll_connection = connection.clone();
+            let poll_node = device_node.clone();
+            wait_for_mutter_mapping_ready(
+                move || {
+                    let connection = poll_connection.clone();
+                    let device_node = poll_node.clone();
+                    async move { query_mutter_device_mapping(&connection, &device_node).await }
+                },
+                MUTTER_DEVICE_READY_TIMEOUT,
+            )
+            .await
+            .map_err(|error| {
+                format!(
+                    "Mutter did not recognize uinput device {device_node} before input: {error}"
+                )
+            })
+        } else {
+            Ok(())
+        };
+
+        cache_abs_pointer_after_readiness(&self.abs_pointer, pointer, readiness)?;
+        Ok(true)
     }
 
     #[tool(
@@ -734,7 +898,16 @@ impl ComputerUseLinux {
         // Off-screen coordinates "succeed" at the uinput layer while landing on
         // no visible pixel — surface that instead of a silent no-op.
         let off_screen_note = self.off_screen_note_for_point(x, y).await;
-        if self.ensure_abs_pointer().await {
+        let abs_pointer_ready = match self.ensure_abs_pointer().await {
+            Ok(ready) => ready,
+            Err(message) => {
+                return Json(with_notes(
+                    action_result("click", Err(message), received),
+                    off_screen_note,
+                ));
+            }
+        };
+        if abs_pointer_ready {
             let btn = crate::abs_pointer::PointerButton::from_name(params.button.as_deref());
             let count = params.click_count.unwrap_or(1).clamp(1, 10);
             let abs_pointer = Arc::clone(&self.abs_pointer);
@@ -1043,7 +1216,7 @@ impl ComputerUseLinux {
     )]
     async fn scroll(&self, Parameters(mut params): Parameters<ScrollParams>) -> Json<ActionOutput> {
         let received = Some(serde_json::json!(params.clone()));
-        let input_guard = Arc::clone(&self.input_operation_lock).lock_owned().await;
+        let mut input_guard = Arc::clone(&self.input_operation_lock).lock_owned().await;
         let mut portal_target_point = None;
         let units = ((params.pages.unwrap_or(1.0).abs().max(0.1) * 5.0).round() as i32).max(1);
         // Raise/focus the target window first (parity with click) so wheel
@@ -1189,6 +1362,85 @@ impl ComputerUseLinux {
             Some((x, y)) => self.off_screen_note_for_point(x, y).await,
             None => None,
         };
+        let pointer_backend_forced = env_flag_enabled_any(&[
+            "COMPUTER_USE_LINUX_FORCE_YDOTOOL_POINTER",
+            "CODEX_COMPUTER_USE_FORCE_YDOTOOL_POINTER",
+            "COMPUTER_USE_LINUX_FORCE_PORTAL_POINTER",
+            "CODEX_COMPUTER_USE_FORCE_PORTAL_POINTER",
+        ]);
+        let abs_pointer_enabled = if !pointer_backend_forced {
+            match self.ensure_abs_pointer().await {
+                Ok(ready) => ready,
+                Err(message) => {
+                    return Json(with_notes(
+                        action_result("scroll", Err(message), received),
+                        off_screen_note,
+                    ));
+                }
+            }
+        } else {
+            false
+        };
+        if prefer_abs_pointer_scroll(abs_pointer_enabled, pointer_backend_forced) {
+            let (dx, dy) = absolute_scroll_delta(direction, units);
+            let abs_pointer = Arc::clone(&self.abs_pointer);
+            let (returned_guard, scrolled) =
+                run_cancellation_safe_guarded(input_guard, async move {
+                    tokio::task::spawn_blocking(move || {
+                        let mut guard = abs_pointer.lock().ok()?;
+                        let result = guard
+                            .as_mut()?
+                            .scroll(target_point, dx, dy)
+                            .map_err(|error| format!("{error:#}"));
+                        if result.is_err() {
+                            guard.take();
+                        }
+                        Some(result)
+                    })
+                    .await
+                    .ok()
+                    .flatten()
+                })
+                .await;
+            let Some(returned_guard) = returned_guard else {
+                return Json(with_notes(
+                    action_result("scroll", Err(scrolled.unwrap_err()), received),
+                    off_screen_note,
+                ));
+            };
+            input_guard = returned_guard;
+            match scrolled {
+                Ok(Some(Ok(()))) => {
+                    return Json(with_notes(
+                        pointer_action_result(ActionOutput {
+                            ok: true,
+                            implemented: true,
+                            action: "scroll".to_string(),
+                            message: "Action sent through the uinput absolute pointer.".to_string(),
+                            received,
+                        }),
+                        off_screen_note,
+                    ));
+                }
+                Ok(Some(Err(error))) => {
+                    return Json(with_notes(
+                        action_result(
+                            "scroll",
+                            Err(format!(
+                                "uinput scroll may have started before it failed; the device was invalidated and input was not replayed through another backend: {error}"
+                            )),
+                            received,
+                        ),
+                        off_screen_note,
+                    ));
+                }
+                Ok(None) => {
+                    // Device state disappeared before the operation began;
+                    // keep the returned input lock while using the fallback.
+                }
+                Err(_) => unreachable!("missing guard already handled the guarded task failure"),
+            }
+        }
         if let Some(session) = self.cached_portal_pointer_session() {
             let mapped_target = match (portal_target_point, target_point) {
                 (Some(point), _) => Some(Some(point)),
@@ -1304,22 +1556,7 @@ impl ComputerUseLinux {
                 }
             }
         }
-        let (dx, dy) = match params.direction.to_ascii_lowercase().as_str() {
-            "up" => (0, units),
-            "down" => (0, -units),
-            "left" => (units, 0),
-            "right" => (-units, 0),
-            _ => {
-                return Json(ActionOutput {
-                    ok: false,
-                    implemented: true,
-                    action: "scroll".to_string(),
-                    message: "Unsupported scroll direction; expected up, down, left, or right."
-                        .to_string(),
-                    received,
-                });
-            }
-        };
+        let (dx, dy) = absolute_scroll_delta(direction, units);
         let mut sequence = Vec::new();
         if let Some((x, y)) = target_point {
             sequence.push(absolute_mousemove_args(x, y));
@@ -1350,7 +1587,11 @@ impl ComputerUseLinux {
         let received = Some(serde_json::json!(params));
         let mut input_guard = Arc::clone(&self.input_operation_lock).lock_owned().await;
         // Preferred backend: the uinput absolute pointer (accurate landing).
-        if self.ensure_abs_pointer().await {
+        let abs_pointer_ready = match self.ensure_abs_pointer().await {
+            Ok(ready) => ready,
+            Err(message) => return Json(action_result("drag", Err(message), received)),
+        };
+        if abs_pointer_ready {
             let abs_pointer = Arc::clone(&self.abs_pointer);
             let start = (params.start_x, params.start_y);
             let end = (params.end_x, params.end_y);
@@ -4115,6 +4356,19 @@ fn apply_window_relative_click_coordinates(
     params.x = Some(x);
     params.y = Some(y);
     Ok(())
+}
+
+fn prefer_abs_pointer_scroll(enabled: bool, forced_backend: bool) -> bool {
+    enabled && !forced_backend
+}
+
+fn absolute_scroll_delta(direction: ScrollDirection, units: i32) -> (i32, i32) {
+    match direction {
+        ScrollDirection::Up => (0, units),
+        ScrollDirection::Down => (0, -units),
+        ScrollDirection::Left => (units, 0),
+        ScrollDirection::Right => (-units, 0),
+    }
 }
 
 /// Point a window-targeted scroll at the centre of the resolved window when
@@ -7342,5 +7596,109 @@ mod tests {
         assert!(
             apply_window_relative_scroll_coordinates(&mut params, (100, 200, 800, 600)).is_err()
         );
+    }
+
+    #[test]
+    fn absolute_pointer_scroll_requires_enabled_device_and_no_forced_backend() {
+        assert!(prefer_abs_pointer_scroll(true, false));
+        assert!(!prefer_abs_pointer_scroll(false, false));
+        assert!(!prefer_abs_pointer_scroll(true, true));
+    }
+
+    #[test]
+    fn uinput_and_ydotool_scroll_share_wheel_signs() {
+        assert_eq!(absolute_scroll_delta(ScrollDirection::Up, 5), (0, 5));
+        assert_eq!(absolute_scroll_delta(ScrollDirection::Down, 5), (0, -5));
+        assert_eq!(absolute_scroll_delta(ScrollDirection::Left, 5), (5, 0));
+        assert_eq!(absolute_scroll_delta(ScrollDirection::Right, 5), (-5, 0));
+    }
+
+    #[test]
+    fn mutter_mapping_accepts_rectangles_and_only_the_exact_unmapped_error() {
+        assert_eq!(
+            classify_mutter_mapping(Ok((0, 0, 1920, 1080))),
+            DeviceMappingStatus::Ready
+        );
+        assert_eq!(
+            classify_mutter_mapping_error(
+                "org.gtk.GDBus.UnmappedGError.Quark._g_2dio_2derror_2dquark.Code1",
+                Some("Device is not mapped to any output")
+            ),
+            DeviceMappingStatus::Ready
+        );
+        assert_eq!(
+            classify_mutter_mapping_error(
+                "org.gtk.GDBus.UnmappedGError.Quark._g_2dio_2derror_2dquark.Code35",
+                Some("Device does not exist")
+            ),
+            DeviceMappingStatus::Missing
+        );
+        assert_eq!(
+            classify_mutter_mapping_error(
+                "org.example.Error",
+                Some("Device is not mapped to any output")
+            ),
+            DeviceMappingStatus::Pending
+        );
+        assert_eq!(
+            classify_mutter_mapping_error(
+                "org.gtk.GDBus.UnmappedGError.Quark._g_2dio_2derror_2dquark.Code1",
+                Some("different message")
+            ),
+            DeviceMappingStatus::Pending
+        );
+    }
+
+    #[tokio::test]
+    async fn mutter_mapping_poller_retries_until_device_is_ready() {
+        let mut states = [DeviceMappingStatus::Missing, DeviceMappingStatus::Ready].into_iter();
+        wait_for_mutter_mapping_ready(
+            || {
+                let state = states.next().unwrap_or(DeviceMappingStatus::Missing);
+                async move { state }
+            },
+            Duration::from_millis(100),
+        )
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn mutter_mapping_poller_respects_bounded_deadline() {
+        let started = tokio::time::Instant::now();
+        let result = wait_for_mutter_mapping_ready(
+            || async { DeviceMappingStatus::Missing },
+            Duration::from_millis(90),
+        )
+        .await;
+        assert!(result.is_err());
+        assert!(started.elapsed() < Duration::from_millis(250));
+    }
+
+    #[test]
+    fn unready_pointer_is_not_cached() {
+        let cache = Mutex::new(None);
+        assert!(cache_abs_pointer_after_readiness(&cache, 42_u8, Err("not ready".into())).is_err());
+        assert_eq!(*cache.lock().unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn mutter_mapping_rejects_unrecognized_errors_without_retry() {
+        let mut calls = 0;
+        let result = wait_for_mutter_mapping_ready(
+            || {
+                calls += 1;
+                let status = if calls == 1 {
+                    DeviceMappingStatus::Pending
+                } else {
+                    DeviceMappingStatus::Ready
+                };
+                async move { status }
+            },
+            Duration::from_secs(1),
+        )
+        .await;
+        assert!(result.is_err());
+        assert_eq!(calls, 1);
     }
 }

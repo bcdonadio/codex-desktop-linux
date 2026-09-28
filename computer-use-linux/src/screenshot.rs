@@ -8,8 +8,10 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
-    fs,
-    io::Cursor,
+    fs::{self, File, OpenOptions},
+    io::{Cursor, Read, Seek, SeekFrom},
+    os::fd::AsFd,
+    os::unix::fs::OpenOptionsExt,
     path::{Path, PathBuf},
     process::Stdio,
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -17,7 +19,7 @@ use std::{
 use tokio::process::Command;
 use zbus::{
     message::{Message, Type as MessageType},
-    zvariant::{OwnedObjectPath, OwnedValue, Value},
+    zvariant::{Fd, OwnedObjectPath, OwnedValue, Value},
     MatchRule, MessageStream, Proxy,
 };
 
@@ -156,6 +158,28 @@ enum ScreenshotBackend {
     GnomeScreenshot,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ScreenshotMode {
+    Forced(ScreenshotBackend),
+    AutomaticContainedExtension,
+    AutomaticFallback,
+}
+
+fn select_screenshot_mode(
+    forced: Option<ScreenshotBackend>,
+    contained: bool,
+    gnome_shell_owns_name: bool,
+) -> ScreenshotMode {
+    if let Some(backend) = forced {
+        return ScreenshotMode::Forced(backend);
+    }
+    if contained && gnome_shell_owns_name {
+        ScreenshotMode::AutomaticContainedExtension
+    } else {
+        ScreenshotMode::AutomaticFallback
+    }
+}
+
 impl ScreenshotBackend {
     fn parse(value: &str) -> Option<Self> {
         match value.trim().to_ascii_lowercase().as_str() {
@@ -183,8 +207,28 @@ pub async fn capture_screenshot_raw() -> Result<RawScreenshotCapture> {
     // Explicit override: use exactly the requested backend, no fallback. Lets
     // background/systemd contexts pin `gnome-screenshot` when the DBus paths are
     // blocked, and aids debugging.
-    if let Some(forced) = forced_backend()? {
+    let forced = forced_backend()?;
+    let contained = std::env::var("CODEX_CONTAINED").is_ok_and(|value| value == "1");
+    if let Some(forced) = forced {
+        if forced == ScreenshotBackend::GnomeExtension && contained {
+            return capture_with_gnome_extension_fd().await;
+        }
         return forced.capture().await;
+    }
+
+    let gnome_shell_owns_name = if contained {
+        session_bus_gnome_shell_owns_name().await.unwrap_or(false)
+    } else {
+        false
+    };
+
+    if select_screenshot_mode(None, contained, gnome_shell_owns_name)
+        == ScreenshotMode::AutomaticContainedExtension
+    {
+        // A missing or outdated extension API is actionable setup guidance.
+        // Do not continue to pathname backends that cannot cross the
+        // contained process's /tmp namespace.
+        return capture_with_gnome_extension_fd().await;
     }
 
     // The Shell and portal DBus paths fail for background processes (systemd
@@ -216,6 +260,21 @@ pub async fn capture_screenshot_raw() -> Result<RawScreenshotCapture> {
          XDG portal screenshot failed: {portal_error}; \
          gnome-screenshot fallback failed: {cli_error}"
     ))
+}
+
+async fn session_bus_gnome_shell_owns_name() -> Result<bool> {
+    let connection = zbus::Connection::session()
+        .await
+        .context("failed to connect to session bus while checking GNOME Shell ownership")?;
+    let dbus = zbus::fdo::DBusProxy::new(&connection)
+        .await
+        .context("failed to create session bus ownership proxy")?;
+    let name = "org.gnome.Shell"
+        .try_into()
+        .context("invalid GNOME Shell session-bus name")?;
+    dbus.name_has_owner(name)
+        .await
+        .context("failed to check whether GNOME Shell owns its session-bus name")
 }
 
 fn forced_backend() -> Result<Option<ScreenshotBackend>> {
@@ -364,6 +423,119 @@ async fn capture_with_gnome_extension() -> Result<RawScreenshotCapture> {
         ScreenshotCleanup::DeletePath(path),
     )
     .await
+}
+
+const GNOME_EXTENSION_FD_TIMEOUT: Duration = Duration::from_secs(20);
+const GNOME_EXTENSION_FD_SETUP_HINT: &str = "run setup_window_targeting to install the GNOME Shell extension, then log out and back in to reload GNOME Shell";
+
+async fn capture_with_gnome_extension_fd() -> Result<RawScreenshotCapture> {
+    let connection = zbus::Connection::session()
+        .await
+        .context("failed to connect to session bus for GNOME Shell extension screenshot")?;
+    let proxy = Proxy::new(
+        &connection,
+        identity::DBUS_SERVICE,
+        identity::DBUS_OBJECT_PATH,
+        identity::DBUS_SERVICE,
+    )
+    .await
+    .context("failed to create Codex GNOME Shell extension screenshot proxy")?;
+
+    capture_png_to_fd(&proxy, &std::env::temp_dir(), GNOME_EXTENSION_FD_TIMEOUT)
+        .await
+        .map_err(add_gnome_extension_fd_guidance)
+}
+
+fn add_gnome_extension_fd_guidance(error: anyhow::Error) -> anyhow::Error {
+    let unknown_method = error.chain().any(|cause| {
+        cause.downcast_ref::<zbus::Error>().is_some_and(|error| {
+            matches!(
+                error,
+                zbus::Error::MethodError(name, _, _)
+                    if matches!(name.as_str(),
+                        "org.freedesktop.DBus.Error.UnknownMethod"
+                        | "org.freedesktop.DBus.Error.ServiceUnknown"
+                        | "org.freedesktop.DBus.Error.NameHasNoOwner"
+                    )
+            )
+        })
+    });
+    if unknown_method {
+        error.context(format!(
+            "the installed GNOME Shell extension does not support descriptor-based screenshots; {GNOME_EXTENSION_FD_SETUP_HINT}"
+        ))
+    } else {
+        error
+    }
+}
+
+async fn capture_png_to_fd(
+    proxy: &Proxy<'_>,
+    temp_dir: &Path,
+    timeout: Duration,
+) -> Result<RawScreenshotCapture> {
+    let mut file = create_unlinked_screenshot_file(temp_dir)?;
+
+    let call: zbus::Result<(bool, String)> = tokio::time::timeout(
+        timeout,
+        proxy.call("CaptureScreenshotToFd", &(Fd::from(file.as_fd()),)),
+    )
+    .await
+    .context("timed out waiting for GNOME Shell extension CaptureScreenshotToFd")?;
+    let (success, message) = call.map_err(|error| {
+        anyhow!(error).context("GNOME Shell extension CaptureScreenshotToFd call failed")
+    })?;
+    if !success {
+        bail!("GNOME Shell extension refused descriptor screenshot: {message}");
+    }
+
+    file.seek(SeekFrom::Start(0))
+        .context("failed to rewind descriptor-based GNOME screenshot")?;
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes)
+        .context("failed to read descriptor-based GNOME screenshot")?;
+    if bytes.is_empty() {
+        bail!("descriptor-based GNOME screenshot file was empty");
+    }
+    let (width, height) =
+        png_dimensions(&bytes).context("descriptor-based GNOME screenshot was not a valid PNG")?;
+
+    Ok(RawScreenshotCapture {
+        mime_type: "image/png".to_string(),
+        bytes,
+        source: "gnome-shell-extension".to_string(),
+        width,
+        height,
+    })
+}
+
+fn create_unlinked_screenshot_file(temp_dir: &Path) -> Result<File> {
+    let path = temp_dir.join(format!(
+        "computer-use-linux-fd-screenshot-{}.png",
+        unique_suffix()
+    ));
+    let file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&path)
+        .with_context(|| {
+            format!(
+                "failed to create private screenshot descriptor in {}",
+                temp_dir.display()
+            )
+        })?;
+    if let Err(error) = fs::remove_file(&path) {
+        let _ = fs::remove_file(&path);
+        return Err(error).with_context(|| {
+            format!(
+                "failed to unlink private screenshot descriptor {}",
+                path.display()
+            )
+        });
+    }
+    Ok(file)
 }
 
 async fn capture_with_portal() -> Result<RawScreenshotCapture> {
@@ -713,6 +885,14 @@ fn unique_suffix() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{
+        io::{BufRead, BufReader},
+        os::fd::AsFd,
+        os::unix::fs::PermissionsExt,
+        process::{Child, Command, Stdio},
+        sync::{Arc, Mutex},
+    };
+    use zbus::zvariant::Fd;
 
     fn test_path(name: &str) -> PathBuf {
         std::env::temp_dir().join(format!(
@@ -756,6 +936,132 @@ mod tests {
         out
     }
 
+    #[derive(Clone)]
+    enum FdProducerReply {
+        Write(Vec<u8>),
+        Refuse(String),
+        Wait,
+    }
+
+    struct FdScreenshotProducer {
+        reply: FdProducerReply,
+        received_mode: Arc<Mutex<Option<u32>>>,
+    }
+
+    struct PrivateBus {
+        child: Child,
+        address: String,
+        _stdout: BufReader<std::process::ChildStdout>,
+    }
+
+    impl PrivateBus {
+        fn start() -> Self {
+            let mut child = Command::new("dbus-daemon")
+                .args(["--session", "--nofork", "--print-address=1"])
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .spawn()
+                .expect("dbus-daemon must be installed for private-bus screenshot tests");
+            let stdout = child.stdout.take().unwrap();
+            let mut reader = BufReader::new(stdout);
+            let mut address = String::new();
+            reader
+                .read_line(&mut address)
+                .expect("dbus-daemon must print its private bus address");
+            assert!(
+                !address.trim().is_empty(),
+                "dbus-daemon returned an empty address"
+            );
+            Self {
+                child,
+                address: address.trim().to_string(),
+                _stdout: reader,
+            }
+        }
+
+        fn builder(&self) -> zbus::Result<zbus::connection::Builder<'_>> {
+            zbus::connection::Builder::address(self.address.as_str())
+        }
+    }
+
+    impl Drop for PrivateBus {
+        fn drop(&mut self) {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
+    }
+
+    #[zbus::interface(name = "com.openai.Codex.TestScreenshot")]
+    impl FdScreenshotProducer {
+        async fn capture_screenshot_to_fd(&self, fd: Fd<'_>) -> (bool, String) {
+            use std::io::Write;
+
+            let owned_fd = fd.as_fd().try_clone_to_owned().unwrap();
+            drop(fd);
+            let mut file = std::fs::File::from(owned_fd);
+            let mode = file.metadata().unwrap().permissions().mode() & 0o777;
+            *self.received_mode.lock().unwrap() = Some(mode);
+            match &self.reply {
+                FdProducerReply::Write(bytes) => {
+                    file.write_all(bytes).unwrap();
+                    (true, "captured".to_string())
+                }
+                FdProducerReply::Refuse(message) => (false, message.clone()),
+                FdProducerReply::Wait => {
+                    drop(file);
+                    tokio::time::sleep(Duration::from_millis(250)).await;
+                    (true, "late".to_string())
+                }
+            }
+        }
+    }
+
+    async fn fd_test_proxy(
+        reply: FdProducerReply,
+    ) -> (
+        PrivateBus,
+        zbus::Connection,
+        zbus::Connection,
+        Proxy<'static>,
+        Arc<Mutex<Option<u32>>>,
+    ) {
+        let bus = PrivateBus::start();
+        let name = format!(
+            "com.openai.Codex.TestScreenshot_{}",
+            unique_suffix().replace('-', "_")
+        );
+        let received_mode = Arc::new(Mutex::new(None));
+        let service = bus
+            .builder()
+            .unwrap()
+            .name(name.as_str())
+            .unwrap()
+            .serve_at(
+                "/com/openai/Codex/TestScreenshot",
+                FdScreenshotProducer {
+                    reply,
+                    received_mode: received_mode.clone(),
+                },
+            )
+            .unwrap()
+            .build()
+            .await
+            .unwrap();
+        let connection = bus.builder().unwrap().build().await.unwrap();
+        let proxy = Proxy::new_owned(
+            connection.clone(),
+            name,
+            "/com/openai/Codex/TestScreenshot",
+            "com.openai.Codex.TestScreenshot",
+        )
+        .await
+        .unwrap();
+        // The service connection remains open for the caller's test.
+        // Bus is returned alongside both peers and shuts down when dropped.
+        (bus, connection, service, proxy, received_mode)
+    }
+
     fn raw_capture(bytes: Vec<u8>) -> RawScreenshotCapture {
         let (width, height) = png_dimensions(&bytes).unwrap();
         RawScreenshotCapture {
@@ -794,6 +1100,157 @@ mod tests {
             Some(ScreenshotBackend::GnomeScreenshot)
         );
         assert_eq!(ScreenshotBackend::parse("nonsense"), None);
+    }
+
+    #[tokio::test]
+    async fn extension_fd_capture_transfers_png_and_leaves_no_named_file() {
+        let temp_dir = std::env::temp_dir().join(format!("cua-fd-success-{}", unique_suffix()));
+        fs::create_dir(&temp_dir).unwrap();
+        let expected = valid_png(23, 17);
+        let (_bus, client, _service, proxy, received_mode) =
+            fd_test_proxy(FdProducerReply::Write(expected.clone())).await;
+
+        let capture = capture_png_to_fd(&proxy, &temp_dir, Duration::from_secs(1))
+            .await
+            .unwrap();
+
+        assert_eq!(capture.bytes, expected);
+        assert_eq!((capture.width, capture.height), (23, 17));
+        assert_eq!(*received_mode.lock().unwrap(), Some(0o600));
+        assert_eq!(fs::read_dir(&temp_dir).unwrap().count(), 0);
+        assert_no_open_fd_under(&temp_dir);
+        drop(client);
+        fs::remove_dir(&temp_dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn extension_fd_capture_rejects_refusal_empty_and_malformed_pngs() {
+        for (reply, expected_error) in [
+            (
+                FdProducerReply::Refuse("denied by shell".into()),
+                "denied by shell",
+            ),
+            (
+                FdProducerReply::Write(Vec::new()),
+                "screenshot file was empty",
+            ),
+            (
+                FdProducerReply::Write(b"not a png".to_vec()),
+                "not a valid PNG",
+            ),
+        ] {
+            let temp_dir = std::env::temp_dir().join(format!("cua-fd-error-{}", unique_suffix()));
+            fs::create_dir(&temp_dir).unwrap();
+            let (_bus, client, _service, proxy, _) = fd_test_proxy(reply).await;
+
+            let error = capture_png_to_fd(&proxy, &temp_dir, Duration::from_secs(1))
+                .await
+                .unwrap_err();
+
+            assert!(error.to_string().contains(expected_error), "{error:#}");
+            assert_eq!(fs::read_dir(&temp_dir).unwrap().count(), 0);
+            assert_no_open_fd_under(&temp_dir);
+            drop(client);
+            fs::remove_dir(&temp_dir).unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn extension_fd_capture_timeout_releases_its_unlinked_file() {
+        let temp_dir = std::env::temp_dir().join(format!("cua-fd-timeout-{}", unique_suffix()));
+        fs::create_dir(&temp_dir).unwrap();
+        let (_bus, _client, _service, proxy, _) = fd_test_proxy(FdProducerReply::Wait).await;
+
+        let error = capture_png_to_fd(&proxy, &temp_dir, Duration::from_millis(5))
+            .await
+            .unwrap_err();
+
+        assert!(error.to_string().contains("timed out"), "{error:#}");
+        // zbus can retain a serialized request descriptor until its late
+        // reply is drained. Wait for that protocol-owned duplicate to close;
+        // the capture helper itself has already returned at its deadline.
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert_eq!(fs::read_dir(&temp_dir).unwrap().count(), 0);
+        assert_no_open_fd_under(&temp_dir);
+        fs::remove_dir(&temp_dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn extension_fd_capture_reports_setup_guidance_for_missing_service_and_method() {
+        let bus = PrivateBus::start();
+        let connection = bus.builder().unwrap().build().await.unwrap();
+        let temp_dir = std::env::temp_dir().join(format!("cua-fd-guidance-{}", unique_suffix()));
+        fs::create_dir(&temp_dir).unwrap();
+        let missing_service = Proxy::new(
+            &connection,
+            "com.openai.Codex.MissingScreenshotExtension",
+            "/com/openai/Codex/Screenshot",
+            "com.openai.Codex.Screenshot",
+        )
+        .await
+        .unwrap();
+        let error = capture_png_to_fd(&missing_service, &temp_dir, Duration::from_secs(1))
+            .await
+            .unwrap_err();
+        let error = add_gnome_extension_fd_guidance(error);
+        assert!(
+            error.to_string().contains("setup_window_targeting"),
+            "{error:#}"
+        );
+
+        let outdated_service = Proxy::new(
+            &connection,
+            "org.freedesktop.DBus",
+            "/org/freedesktop/DBus",
+            "org.freedesktop.DBus",
+        )
+        .await
+        .unwrap();
+        let error = capture_png_to_fd(&outdated_service, &temp_dir, Duration::from_secs(1))
+            .await
+            .unwrap_err();
+        let error = add_gnome_extension_fd_guidance(error);
+        assert!(
+            error.to_string().contains("setup_window_targeting"),
+            "{error:#}"
+        );
+        assert!(
+            error.to_string().contains("log out and back in"),
+            "{error:#}"
+        );
+        assert_eq!(fs::read_dir(&temp_dir).unwrap().count(), 0);
+        fs::remove_dir(&temp_dir).unwrap();
+    }
+
+    #[test]
+    fn contained_gnome_capture_selection_preserves_forced_backends() {
+        assert_eq!(
+            select_screenshot_mode(Some(ScreenshotBackend::Portal), true, true,),
+            ScreenshotMode::Forced(ScreenshotBackend::Portal)
+        );
+        assert_eq!(
+            select_screenshot_mode(None, true, true),
+            ScreenshotMode::AutomaticContainedExtension
+        );
+        assert_eq!(
+            select_screenshot_mode(None, true, false),
+            ScreenshotMode::AutomaticFallback
+        );
+        assert_eq!(
+            select_screenshot_mode(None, false, true),
+            ScreenshotMode::AutomaticFallback
+        );
+    }
+
+    fn assert_no_open_fd_under(path: &Path) {
+        for entry in fs::read_dir("/proc/self/fd").unwrap() {
+            let link = fs::read_link(entry.unwrap().path()).unwrap();
+            assert!(
+                !link.starts_with(path),
+                "temporary screenshot descriptor remains open: {}",
+                link.display()
+            );
+        }
     }
 
     #[test]
