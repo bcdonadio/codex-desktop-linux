@@ -1043,7 +1043,7 @@ impl ComputerUseLinux {
     )]
     async fn scroll(&self, Parameters(mut params): Parameters<ScrollParams>) -> Json<ActionOutput> {
         let received = Some(serde_json::json!(params.clone()));
-        let input_guard = Arc::clone(&self.input_operation_lock).lock_owned().await;
+        let mut input_guard = Arc::clone(&self.input_operation_lock).lock_owned().await;
         let mut portal_target_point = None;
         let units = ((params.pages.unwrap_or(1.0).abs().max(0.1) * 5.0).round() as i32).max(1);
         // Raise/focus the target window first (parity with click) so wheel
@@ -1189,6 +1189,77 @@ impl ComputerUseLinux {
             Some((x, y)) => self.off_screen_note_for_point(x, y).await,
             None => None,
         };
+        let pointer_backend_forced = env_flag_enabled_any(&[
+            "COMPUTER_USE_LINUX_FORCE_YDOTOOL_POINTER",
+            "CODEX_COMPUTER_USE_FORCE_YDOTOOL_POINTER",
+            "COMPUTER_USE_LINUX_FORCE_PORTAL_POINTER",
+            "CODEX_COMPUTER_USE_FORCE_PORTAL_POINTER",
+        ]);
+        let abs_pointer_enabled = if !pointer_backend_forced {
+            self.ensure_abs_pointer().await
+        } else {
+            false
+        };
+        if prefer_abs_pointer_scroll(abs_pointer_enabled, pointer_backend_forced) {
+            let (dx, dy) = absolute_scroll_delta(direction, units);
+            let abs_pointer = Arc::clone(&self.abs_pointer);
+            let (returned_guard, scrolled) =
+                run_cancellation_safe_guarded(input_guard, async move {
+                    tokio::task::spawn_blocking(move || {
+                        let mut guard = abs_pointer.lock().ok()?;
+                        let result = guard
+                            .as_mut()?
+                            .scroll(target_point, dx, dy)
+                            .map_err(|error| format!("{error:#}"));
+                        if result.is_err() {
+                            guard.take();
+                        }
+                        Some(result)
+                    })
+                    .await
+                    .ok()
+                    .flatten()
+                })
+                .await;
+            let Some(returned_guard) = returned_guard else {
+                return Json(with_notes(
+                    action_result("scroll", Err(scrolled.unwrap_err()), received),
+                    off_screen_note,
+                ));
+            };
+            input_guard = returned_guard;
+            match scrolled {
+                Ok(Some(Ok(()))) => {
+                    return Json(with_notes(
+                        pointer_action_result(ActionOutput {
+                            ok: true,
+                            implemented: true,
+                            action: "scroll".to_string(),
+                            message: "Action sent through the uinput absolute pointer.".to_string(),
+                            received,
+                        }),
+                        off_screen_note,
+                    ));
+                }
+                Ok(Some(Err(error))) => {
+                    return Json(with_notes(
+                        action_result(
+                            "scroll",
+                            Err(format!(
+                                "uinput scroll may have started before it failed; the device was invalidated and input was not replayed through another backend: {error}"
+                            )),
+                            received,
+                        ),
+                        off_screen_note,
+                    ));
+                }
+                Ok(None) => {
+                    // Device state disappeared before the operation began;
+                    // keep the returned input lock while using the fallback.
+                }
+                Err(_) => unreachable!("missing guard already handled the guarded task failure"),
+            }
+        }
         if let Some(session) = self.cached_portal_pointer_session() {
             let mapped_target = match (portal_target_point, target_point) {
                 (Some(point), _) => Some(Some(point)),
@@ -4115,6 +4186,19 @@ fn apply_window_relative_click_coordinates(
     params.x = Some(x);
     params.y = Some(y);
     Ok(())
+}
+
+fn prefer_abs_pointer_scroll(enabled: bool, forced_backend: bool) -> bool {
+    enabled && !forced_backend
+}
+
+fn absolute_scroll_delta(direction: ScrollDirection, units: i32) -> (i32, i32) {
+    match direction {
+        ScrollDirection::Up => (0, units),
+        ScrollDirection::Down => (0, -units),
+        ScrollDirection::Left => (-units, 0),
+        ScrollDirection::Right => (units, 0),
+    }
 }
 
 /// Point a window-targeted scroll at the centre of the resolved window when
@@ -7342,5 +7426,20 @@ mod tests {
         assert!(
             apply_window_relative_scroll_coordinates(&mut params, (100, 200, 800, 600)).is_err()
         );
+    }
+
+    #[test]
+    fn absolute_pointer_scroll_requires_enabled_device_and_no_forced_backend() {
+        assert!(prefer_abs_pointer_scroll(true, false));
+        assert!(!prefer_abs_pointer_scroll(false, false));
+        assert!(!prefer_abs_pointer_scroll(true, true));
+    }
+
+    #[test]
+    fn absolute_scroll_uses_native_linux_wheel_signs() {
+        assert_eq!(absolute_scroll_delta(ScrollDirection::Up, 5), (0, 5));
+        assert_eq!(absolute_scroll_delta(ScrollDirection::Down, 5), (0, -5));
+        assert_eq!(absolute_scroll_delta(ScrollDirection::Left, 5), (-5, 0));
+        assert_eq!(absolute_scroll_delta(ScrollDirection::Right, 5), (5, 0));
     }
 }
