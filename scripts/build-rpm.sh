@@ -165,6 +165,9 @@ SCRIPT
         --define "_specdir $build_root" \
         --define "_build_name_fmt %%{NAME}-%%{VERSION}-%%{RELEASE}.%%{ARCH}.rpm" \
     )
+    if [ "$MAX_BUILD_THREADS" != "0" ]; then
+        rpmbuild_args+=(--define "_smp_ncpus_max $MAX_BUILD_THREADS")
+    fi
     if [ -n "$RPM_BINARY_PAYLOAD" ]; then
         info "RPM binary payload compression: $RPM_BINARY_PAYLOAD"
         rpmbuild_args+=(--define "_binary_payload $RPM_BINARY_PAYLOAD")

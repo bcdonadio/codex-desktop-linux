@@ -6,6 +6,17 @@ License:        Proprietary
 ExclusiveArch:  __ARCH__
 %global __requires_exclude_from ^/opt/__PACKAGE_NAME__/.*$
 %global __provides_exclude_from ^/opt/__PACKAGE_NAME__/.*$
+# Fedora packages signed upstream binaries rather than compiling their source.
+# Preserve every ELF byte, including debug, comment, note, and LTO sections.
+# Keep all other build-root policies (compression, shebangs, checks) active.
+%if 0%{?fedora}
+%global debug_package %{nil}
+%global __brp_strip %{nil}
+%global __brp_strip_comment_note %{nil}
+%global __brp_strip_lto %{nil}
+%global __brp_strip_static_archive %{nil}
+%endif
+
 %global codex_elf_suffix %{nil}
 %ifarch x86_64 aarch64
 %global codex_elf_suffix ()(64bit)
