@@ -1817,33 +1817,33 @@ function findLocalFileWatchBundles(extractedDir, settings) {
   const workerRecords = relevant.filter(
     ({ bundlePath }) => path.basename(bundlePath) === "worker.js",
   );
-  const bootstrapRecords = relevant.filter(({ bundlePath }) =>
-    /^bootstrap-[A-Za-z0-9_-]+\.js$/u.test(path.basename(bundlePath)),
+  const companionRecords = relevant.filter(
+    ({ bundlePath }) => path.basename(bundlePath) !== "worker.js",
   );
   const exactPair = relevant.length === 2 &&
     workerRecords.length === 1 &&
-    bootstrapRecords.length === 1;
+    companionRecords.length === 1;
   if (!exactPair) {
     return { targets: [], reason: currentContractReason(records, bundlePaths.length) };
   }
 
   const worker = workerRecords[0];
-  const bootstrap = bootstrapRecords[0];
+  const companion = companionRecords[0];
   const pristine =
     hasPristineLocalContract(worker) &&
     hasPristineWorkerRouteContract(worker) &&
-    hasPristineLocalContract(bootstrap) &&
-    hasNoParcelRouteContract(bootstrap);
+    hasPristineLocalContract(companion) &&
+    hasNoParcelRouteContract(companion);
   const completed =
     hasCompletedLocalContract(worker) &&
     hasCompletedWorkerRouteContract(worker) &&
-    hasCompletedLocalContract(bootstrap) &&
-    hasNoParcelRouteContract(bootstrap);
+    hasCompletedLocalContract(companion) &&
+    hasNoParcelRouteContract(companion);
   if (!pristine && !completed) {
     return { targets: [], reason: currentContractReason(records, bundlePaths.length) };
   }
 
-  const targets = [bootstrap, worker].map((record) => ({
+  const targets = [companion, worker].map((record) => ({
     bundlePath: record.bundlePath,
     source: record.source,
     result: completed
