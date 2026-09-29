@@ -1041,23 +1041,39 @@ test("assistant render patch covers the current shared assistant message call", 
   assert.match(patched, /globalThis\.codexLinuxReadAloudClick\?\.\(n,b,d,e\.currentTarget\)/);
 });
 
-test("assistant runtime descriptor targets current shared assistant bundles", () => {
+const currentAssistantOwner = "function Vb(e){let t=(0,ix.c)(254),{item:n,assistantCopyText:r,turnId:i,autoReviewStats:a,hookStats:o,after:s,compactAttachment:u,electronAfter:f,conversationId:p}=e;return n}";
+const currentAssistantCall = "(0,$.jsx)(Vb,{item:n,showShimmer:we,alwaysShowActions:ge,assistantCopyText:w,turnId:T,savedContentResponseId:E,autoReviewStats:L,hookStats:R,completedThreadGoal:te,after:A,compactAttachment:M,electronAfter:N,conversationId:p,getVisualizeTurnTriggerType:m,cwd:b,hostId:x,reportEntityType:S,markdownMediaCacheKey:e,projectlessOutputDirectory:Ee,outputFileLinks:O,forceCodeBlockWordWrap:Ye,hasArtifacts:De,onAddResponseTextAnnotation:i,onNavigateResponseTextAnnotation:qe,onFileLinkOpen:I,onFork:ie,renderCodeBlocksAsWritingBlocks:Ye,showActionRow:_e,showTimestampHeader:r,showTimestampWithoutActions:ye,timestampHoverOnly:be,allowCopyWhileStreaming:Fe,additionalActions:ce,trailingActions:fe,persistentAdditionalActions:de})";
+
+test("assistant runtime descriptor locates the 26.928.20755 owner semantically", () => {
   const descriptor = featurePatches.find((patch) => patch.id === "assistant-runtime");
   assert.ok(descriptor);
-  assert.equal(
-    descriptor.pattern.test(
-      "conversation-blocks-BSHPwQLO.js",
-    ),
-    true,
-  );
-  for (const legacyName of [
-    "index-current.js",
-    "local-conversation-thread-current.js",
-    "app-initial-BHB6SClA.js",
-    "app-initial~app-main~onboarding-page-zcfEkMl-.js",
-    "app-initial~app-main~onboarding-page~hotkey-window-thread-page~editor-diff-page~thread-app-~current.js",
-  ]) {
-    assert.equal(descriptor.pattern.test(legacyName), false, legacyName);
+  assert.equal(descriptor.pattern.test("sites-end-resource-5f5276fe8984.js"), true);
+  assert.equal(descriptor.assetMatch(currentAssistantOwner + currentAssistantCall), true);
+  assert.equal(descriptor.assetMatch(currentAssistantCall), false);
+  assert.equal(descriptor.assetMatch(currentAssistantOwner), false);
+  assert.equal(descriptor.assetMatch(currentAssistantOwner + currentAssistantCall.replaceAll("Vb", "Other")), false);
+  const patched = twice(descriptor.apply, currentAssistantOwner + currentAssistantCall);
+  assert.match(patched, /globalThis\.codexLinuxReadAloudClick\?\.\(n,w,p,e\.currentTarget\)/);
+});
+
+test("assistant renderer ownership in multiple assets is rejected without writes", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-read-aloud-ambiguous-"));
+  try {
+    const assetsDir = path.join(root, "webview", "assets");
+    fs.mkdirSync(assetsDir, { recursive: true });
+    const source = currentAssistantOwner + currentAssistantCall;
+    const files = ["shared-one.js", "shared-two.js"].map((name) => path.join(assetsDir, name));
+    for (const file of files) fs.writeFileSync(file, source);
+    const descriptor = featurePatches.find((patch) => patch.id === "assistant-runtime");
+    const descriptors = normalizePatchDescriptors([{ ...descriptor, featureId: "read-aloud", sourceKind: "feature" }]);
+    const report = createPatchReport();
+    const { warnings } = captureWarnings(() => applyWebviewAssetPatchDescriptors(root, descriptors, {}, report));
+    for (const file of files) assert.equal(fs.readFileSync(file, "utf8"), source);
+    assert.equal(report.patches[0].status, "skipped-optional");
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0], /multiple assets|ambiguous/i);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
   }
 });
 
@@ -1075,7 +1091,7 @@ test("assistant runtime descriptor fails soft and atomically when the current re
     fs.mkdirSync(assetsDir, { recursive: true });
     const assetPath = path.join(
       assetsDir,
-      "conversation-blocks-BSHPwQLO.js",
+      "sites-end-resource-5f5276fe8984.js",
     );
     const source = "console.log(`assistant render contract moved`);";
     fs.writeFileSync(assetPath, source);
@@ -1090,7 +1106,7 @@ test("assistant runtime descriptor fails soft and atomically when the current re
     assert.equal(fs.readFileSync(assetPath, "utf8"), source);
     assert.equal(report.patches.length, 1);
     assert.equal(report.patches[0].status, "skipped-optional");
-    assert.match(report.patches[0].reason, /Could not find assistant message render call/);
+    assert.match(report.patches[0].reason, /assistant/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -1103,11 +1119,11 @@ test("assistant runtime descriptor reports applied then already-applied for the 
     fs.mkdirSync(assetsDir, { recursive: true });
     const assetPath = path.join(
       assetsDir,
-      "conversation-blocks-BSHPwQLO.js",
+      "sites-end-resource-5f5276fe8984.js",
     );
     fs.writeFileSync(
       assetPath,
-      "return (0,DX.jsx)(Jft,{item:n,assistantCopyText:_,conversationId:l,renderCodeBlocksAsWritingBlocks:ie})",
+      currentAssistantOwner + currentAssistantCall,
     );
     const descriptor = featurePatches.find((patch) => patch.id === "assistant-runtime");
     const descriptors = normalizePatchDescriptors([

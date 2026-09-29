@@ -24,13 +24,13 @@ const currentProjectSource = [
   "const prioritySortId=`sidebarElectron.sortMenu.priority`;",
   "const updatedSortId=`sidebarElectron.sortMenu.updated`;",
   "const manualSortId=`sidebarElectron.sortMenu.manual`;",
-  "let A=fon({groups:D,items:f}),{chatSortMode:j,projectSortMode:M}=t(xH),N=p5o({groups:A,projectOrder:jm(t,_u.PROJECT_ORDER)});",
+  "let {chatSortMode:j,projectSortMode:M}=t(xH),N=p5o({groups:fon({groups:D,items:f}),projectOrder:jm(t,_u.PROJECT_ORDER)}),P=threadSorter({explicitChatThreadKeys:T,getRecencyAt:v,items:f,projectGroups:D,projectlessThreadIds:new Set(x??[])});",
 ].join("");
 
 const officialLinuxProjectSource = [
-  "function A6i(e,t){return e}",
-  "function O8o({groups:e,projectOrder:t}){return A6i(e,t)}",
-  "let A=fon({groups:D,items:f}),{chatSortMode:j,projectSortMode:M}=t(IH),N=O8o({groups:A,projectOrder:Dm(t,yu.PROJECT_ORDER)});",
+  "function M$n(e,t){return e}",
+  "function Scr({groups:e,projectOrder:t}){return M$n(e,t)}",
+  "let {chatSortMode:h,projectSortMode:g}=t(qM),v=e=>recency(e),A=Scr({groups:xcr({groups:O,items:p}),projectOrder:Ac(t,fa.PROJECT_ORDER)}),j=Tcr({explicitChatThreadKeys:T,getRecencyAt:v,items:p,projectGroups:w,projectlessThreadIds:new Set(x??[])});",
 ].join("");
 
 function captureWarns(fn) {
@@ -125,7 +125,7 @@ test("Last updated sorts project groups by their newest task", () => {
 
   assert.deepEqual(
     Array.from(
-      sortProjectGroups({ groups, items, projectOrder, sortMode: "updated_at" }),
+      sortProjectGroups({ groups, getRecencyAt: (key) => items.find((item) => item.task.key === key)?.recencyAt ?? 0, projectOrder, sortMode: "updated_at" }),
       (group) => group.projectId,
     ),
     ["tapas", "chezmoi", "multi", "delta", "nix"],
@@ -148,7 +148,7 @@ test("non-updated modes preserve the upstream saved project order", () => {
   for (const sortMode of ["manual", "priority"]) {
     assert.deepEqual(
       Array.from(
-        sortProjectGroups({ groups, items, projectOrder, sortMode }),
+        sortProjectGroups({ groups, getRecencyAt: (key) => items.find((item) => item.task.key === key)?.recencyAt ?? 0, projectOrder, sortMode }),
         (group) => group.projectId,
       ),
       ["older", "newer"],
@@ -160,22 +160,49 @@ test("patch passes the selected project sort mode into the group sorter", () => 
   const patched = applyPatchTwice(currentProjectSource);
   assert.ok(
     patched.includes(
-      "projectOrder:jm(t,_u.PROJECT_ORDER),items:f,sortMode:M",
+      "projectOrder:jm(t,_u.PROJECT_ORDER),getRecencyAt:v,sortMode:M",
     ),
   );
 });
 
-test("patch matches the official 26.803.81509 project sorter semantically", () => {
+test("patch matches the official 26.928.20755 project sorter semantically", () => {
   const patched = applyPatchTwice(officialLinuxProjectSource);
 
   assert.match(
     patched,
-    /function O8o\(\{groups:e,items:t,projectOrder:n,sortMode:codexLinuxProjectSortMode\}\)/,
+    /function Scr\(\{groups:e,getRecencyAt:t,projectOrder:n,sortMode:codexLinuxProjectSortMode\}\)/,
   );
   assert.match(
     patched,
-    /O8o\(\{groups:A,projectOrder:Dm\(t,yu\.PROJECT_ORDER\),items:f,sortMode:M\}\)/,
+    /Scr\(\{groups:xcr\(\{groups:O,items:p\}\),projectOrder:Ac\(t,fa\.PROJECT_ORDER\),getRecencyAt:v,sortMode:g\}\)/,
   );
+});
+
+test("current project sorting uses shared recency and preserves stable ties and empty groups", () => {
+  const sortProjectGroups = evaluateGroupSorter(applyPatchTwice(currentProjectSource));
+  const groups = [
+    { projectId: "empty", threadKeys: [] },
+    { projectId: "older", threadKeys: ["old-thread"] },
+    { projectId: "newer", threadKeys: ["new-thread"] },
+    { projectId: "equal", threadKeys: ["equal-thread"] },
+    { projectId: "project-update", threadKeys: [], projectUpdatedAt: 30 },
+  ];
+  const recency = new Map([["old-thread", 10], ["new-thread", 20], ["equal-thread", 20]]);
+  assert.deepEqual(
+    Array.from(sortProjectGroups({ groups, getRecencyAt: (key) => recency.get(key), sortMode: "updated_at" }), (group) => group.projectId),
+    ["project-update", "newer", "equal", "older", "empty"],
+  );
+});
+
+test("missing or mismatched authoritative recency callbacks fail closed", () => {
+  for (const source of [
+    currentProjectSource.replace("getRecencyAt:v,items:f", "getRecencyAt:v,items:unrelatedItems"),
+    currentProjectSource.replace("getRecencyAt:v", "getChangedTimestamp:v"),
+  ]) {
+    const { value, warnings } = captureWarns(() => applyProjectGroupLastUpdatedSortPatch(source));
+    assert.equal(value, source);
+    assert.equal(warnings.length, 1);
+  }
 });
 
 test("drift leaves the asset byte-identical", () => {

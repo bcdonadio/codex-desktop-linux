@@ -35,10 +35,14 @@ function applyLinuxCodexAppThreadToolsPatch(currentSource) {
   const matchIndex = needleMatch.index;
   const needle = needleMatch[0];
 
-  const context = currentSource.slice(Math.max(0, matchIndex - 600), matchIndex);
-  const desktopMcpMatches = [...context.matchAll(
-    /usesDesktopMcp:([A-Za-z_$][\w$]*)\(([A-Za-z_$][\w$]*)\)/g,
-  )];
+  // Bind to the enclosing returned runtime inputs, rather than an arbitrary
+  // lookback: current releases add fields between the guard and tool request.
+  const runtimeInputsRegex =
+    /return\{hasDesktopRuntime:!0,usesDesktopMcp:([A-Za-z_$][\w$]*)\(([A-Za-z_$][\w$]*)\),/g;
+  const desktopMcpMatches = [...currentSource.matchAll(runtimeInputsRegex)].filter((match) => {
+    const openIndex = match.index + "return".length;
+    return openIndex < matchIndex && findMatchingBrace(currentSource, openIndex) >= matchIndex + needle.length;
+  });
   if (desktopMcpMatches.length !== 1) {
     console.warn(
       "WARN: Local thread dynamic-tool request lacks the expected Desktop MCP guard - skipping Linux thread tools patch",

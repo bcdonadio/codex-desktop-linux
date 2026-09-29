@@ -6,7 +6,7 @@ const IDENT = "[A-Za-z_$][\\w$]*";
 const MARKER = "codexLinuxForwardAutomationPipe";
 const PIPE_NAME = "CODEX_APP_TOOLS_PIPE_PATH";
 const CONFIG_FUNCTION = new RegExp(
-  "async function " + IDENT + "\\(\\{hostConfig:" + IDENT + ",resourcesPath:" + IDENT +
+  "async function " + IDENT + "\\(\\{useWsl:" + IDENT + ",resourcesPath:" + IDENT +
     "=process\\.resourcesPath\\}\\)\\{if\\(!process\\.env\\." + PIPE_NAME +
     "\\)return " + IDENT + "\\(`missing-pipe`\\);",
   "gu",

@@ -18,7 +18,7 @@ const TAB_OVERFLOW_HELPER =
 
 function markdownRules(source) {
   const unpatched =
-    /(\._MarkdownRoot_([A-Za-z0-9]+)_\d+\[data-markdown-animated\] :is\(\._FadeIn_\2_\d+,\._HorizontalRule_\2_\d+,\._ListItem_\2_\d+,\._TableRow_\2_\d+,\._Blockquote_\2_\d+\))\{opacity:0;animation:_fade-in_\2_\d+ ([^{}]+);animation-delay:var\(--fade-delay,0s\)\}(\._MarkdownRoot_\2_\d+\[data-markdown-animated\] \._FadeListDecoration_\2_\d+::marker)\{animation:_fade-in-marker_\2_\d+ \3;animation-delay:var\(--fade-delay,0s\)\}/gu;
+    /(\._MarkdownRoot_([A-Za-z0-9]+)_\d+\[data-markdown-animated\] :is\(\._FadeIn_\2_\d+,\._HorizontalRule_\2_\d+,\._ListItem_\2_\d+,\._TableRow_\2_\d+,\._Blockquote_\2_\d+\))\{opacity:1;animation:_fade-in_\2_\d+ ([^{}]+);animation-delay:var\(--fade-delay,0s\)\}(\._MarkdownRoot_\2_\d+\[data-markdown-animated\] \._FadeListDecoration_\2_\d+::marker)\{animation:_fade-in-marker_\2_\d+ ([^{}]+);animation-delay:var\(--fade-delay,0s\)\}/gu;
   const patched =
     /(\._MarkdownRoot_([A-Za-z0-9]+)_\d+\[data-markdown-animated\] :is\(\._FadeIn_\2_\d+,\._HorizontalRule_\2_\d+,\._ListItem_\2_\d+,\._TableRow_\2_\d+,\._Blockquote_\2_\d+\))\{opacity:1;animation:none\}(\._MarkdownRoot_\2_\d+\[data-markdown-animated\] \._FadeListDecoration_\2_\d+::marker)\{animation:none\}/gu;
   const candidates = [];
@@ -101,23 +101,25 @@ function mountAnimations(source) {
     const initialVar = controller[2];
     if (!ownerSource.includes("@container/app-shell-tab")) continue;
     const assignmentPattern = new RegExp(
-      `(?:let |,)${escapeRegExp(initialVar)}=(?<expression>!1|(?<animate>[A-Za-z_$][\\w$]*)\\?(?<collapsed>[A-Za-z_$][\\w$]*):!1),`,
+      `(?:let |,)${escapeRegExp(initialVar)}=(?<expression>!1|(?<animate>[A-Za-z_$][\\w$]*)\\?(?<target>[A-Za-z_$][\\w$]*):!1),`,
       "u",
     );
     const assignment = assignmentPattern.exec(ownerSource);
     if (assignment == null) continue;
     const patched = assignment.groups.expression === "!1";
-    if (patched) {
-      if (!/animateLayout:[A-Za-z_$][\w$]*(?:[,}])/u.test(ownerSource)) continue;
-    } else {
-      if (!new RegExp(`animateLayout:${escapeRegExp(assignment.groups.animate)}(?:[,}])`, "u").test(ownerSource)) continue;
-      const collapsedVar = assignment.groups.collapsed;
-      const collapsedSelection = ownerSource.match(
-        new RegExp(`(?:let |,)${escapeRegExp(collapsedVar)}=[A-Za-z_$][\\w$]*\\?([A-Za-z_$][\\w$]*):([A-Za-z_$][\\w$]*),`, "u"),
-      );
-      if (collapsedSelection == null || !collapsedSelection.slice(1).every((name) =>
-        new RegExp("(?:var |,)" + escapeRegExp(name) + "=\\{maxWidth:`0px`", "u").test(source)
-      )) continue;
+    const targetWidth = ownerSource.match(/targetWidth:([A-Za-z_$][\w$]*)(?:[,}])/u)?.[1];
+    const sharesTabWidth = ownerSource.match(/sharesTabWidth:([A-Za-z_$][\w$]*)(?:[,}])/u)?.[1];
+    if (targetWidth == null || sharesTabWidth == null) continue;
+    if (!patched) {
+      const widthAlias = new RegExp(
+        `(?:let |,)(?<width>[A-Za-z_$][\\w$]*)=${escapeRegExp(targetWidth)}===void 0\\?null:${escapeRegExp(targetWidth)},`,
+        "u",
+      ).exec(ownerSource)?.groups.width;
+      if (
+        widthAlias == null ||
+        !new RegExp(`(?:let |,|;)${escapeRegExp(assignment.groups.target)}=${escapeRegExp(widthAlias)}==null\\?${escapeRegExp(sharesTabWidth)}\\?[A-Za-z_$][\\w$]*:[A-Za-z_$][\\w$]*:[A-Za-z_$][\\w$]*,`, "u").test(ownerSource) ||
+        !new RegExp(`animateLayout:${escapeRegExp(assignment.groups.animate)}(?:[,}])`, "u").test(ownerSource)
+      ) continue;
     }
     const relativeExpressionStart = assignment.index + assignment[0].indexOf(assignment.groups.expression);
     candidates.push({

@@ -54,12 +54,25 @@ test("computer-use-linux is opt-in and owns the current Linux descriptors", () =
 });
 
 test("Linux thread resume requests sibling tools only for local Desktop MCP", async (t) => {
-  const buildSource = ({ predicate, hostId, dynamicTools }) => [
-    '"use strict";',
-    `function ${predicate}(e){return e===\`local\`}class Nkr{constructor(e){this.params=e}readInputs(){let{hostId:${hostId},dynamicTools:${dynamicTools}}=this.params;return{hasDesktopRuntime:!0,usesDesktopMcp:${predicate}(${hostId}),readDynamicTools:e=>${dynamicTools}.request(e),traceRequest(e){return e}}}}`,
-    'async function LBt({readDynamicTools,usesDesktopMcp,config}){let n=await readDynamicTools({featureOverrides:{apps:!0}});return usesDesktopMcp?{...config,"mcp_servers.codex_app.enabled_tools":n}:config}',
-    'globalThis.seen=null;globalThis.make=async hostId=>{let inputs=new Nkr({hostId,dynamicTools:{request:async e=>{globalThis.seen=e;return e.featureOverrides?.thread_tools===!0?[\`create_thread\`,\`list_threads\`,\`read_thread\`,\`wait_threads\`,\`send_message_to_thread\`]:[]}}}).readInputs();return LBt({readDynamicTools:inputs.readDynamicTools,usesDesktopMcp:inputs.usesDesktopMcp,config:{}})};',
-  ].join("");
+  const buildSource = ({ predicate, hostId, dynamicTools, extended = false }) => {
+    // These are the fields between usesDesktopMcp and readDynamicTools in
+    // 26.928; their nested objects exceed the former fixed-size lookback.
+    const runtimeFields = extended ? [
+      "hasDeveloperInstructions:!0,isBrowserRuntime:!1,everydayWork:u,sidebarSectionToolsEnabled:a?.get(ps)===!0,",
+      "instructionOverrides:Wt(l,e,{disableExposureLog:r}),",
+      "persistentModelPolicy:d==null?null:{allowedModelIds:[...d.allowedModelIds],defaultModelId:d.defaultModelId},",
+      `aeonExecutionTarget:O8r({scope:a,hostId:${hostId},mode:t,project:i==null?null:{type:i.projectKind,projectId:Ri(i.projectId)}}),`,
+      "readEnvironments:a==null?void 0:e=>H6n(a,e=>s.sendRequest(`command/exec`,e,{priority:`critical`}),{...e,projectAssignment:i,allowRegisteredEnvironments:u||n===`aeon`||a.get(l3n)||!a.get(ZP)}),",
+      "readCloudPrototype:a==null?void 0:e=>K_e(a,e),",
+    ].join("") : "";
+    return [
+      '"use strict";',
+      "function Wt(){return{}}function O8r(){return{}};",
+      `function ${predicate}(e){return e===\`local\`}class Nkr{constructor(e){this.params=e}readInputs(e){let{hostId:${hostId},dynamicTools:${dynamicTools}}=this.params;let a=null,l=null,u=false,d=null,n=\`regular\`,i=null,t=\`local\`,r=false;return{hasDesktopRuntime:!0,usesDesktopMcp:${predicate}(${hostId}),${runtimeFields}readDynamicTools:e=>${dynamicTools}.request(e),traceRequest(e){return e}}}}`,
+      'async function LBt({readDynamicTools,usesDesktopMcp,config}){let n=await readDynamicTools({featureOverrides:{apps:!0}});return usesDesktopMcp?{...config,"mcp_servers.codex_app.enabled_tools":n}:config}',
+      'globalThis.seen=null;globalThis.make=async hostId=>{let inputs=new Nkr({hostId,dynamicTools:{request:async e=>{globalThis.seen=e;return e.featureOverrides?.thread_tools===!0?[`create_thread`,`list_threads`,`read_thread`,`wait_threads`,`send_message_to_thread`]:[]}}}).readInputs();return LBt({readDynamicTools:inputs.readDynamicTools,usesDesktopMcp:inputs.usesDesktopMcp,config:{}})};',
+    ].join("");
+  };
 
   const assertScenario = async (source) => {
     const before = vm.createContext({});
@@ -81,16 +94,32 @@ test("Linux thread resume requests sibling tools only for local Desktop MCP", as
     assert.equal(context.seen.featureOverrides.apps, true);
     assert.equal(context.seen.featureOverrides.thread_tools, true);
     assert.deepEqual(Object.keys(await context.make("remote")), []);
+    assert.equal(context.seen.featureOverrides.apps, true);
+    assert.equal(context.seen.featureOverrides.thread_tools, undefined);
     assert.equal(applyLinuxCodexAppThreadToolsPatch(patched), patched);
   };
 
   for (const [name, fixture] of [
-    ["previous 26.831 shape", { predicate: "HE", hostId: "o", dynamicTools: "c" }],
-    ["current 26.917 shape", { predicate: "Mv", hostId: "a", dynamicTools: "s" }],
+    ["current 26.928 renamed identifiers", { predicate: "DesktopOnly", hostId: "o", dynamicTools: "c" }],
+    ["current 26.928 extended runtime inputs", { predicate: "Zue", hostId: "o", dynamicTools: "c", extended: true }],
   ]) {
     await t.test(`applies and stays scoped for the ${name}`, async () => {
       await assertScenario(buildSource(fixture));
     });
+  }
+});
+
+test("Linux thread tools reject a Desktop MCP guard outside the request object", () => {
+  const sources = [
+    "function unrelated(){return{hasDesktopRuntime:!0,usesDesktopMcp:Zue(o),other:!0}}function remote(){return{readDynamicTools:e=>c.request(e),traceRequest(e){return e}}}",
+    "function duplicate(){return{hasDesktopRuntime:!0,usesDesktopMcp:Zue(o),readDynamicTools:e=>c.request(e),traceRequest(e){return e}}}function other(){return{hasDesktopRuntime:!0,usesDesktopMcp:Zue(o),readDynamicTools:e=>c.request(e),traceRequest(e){return e}}}",
+  ];
+  const originalWarn = console.warn;
+  console.warn = () => {};
+  try {
+    for (const source of sources) assert.equal(applyLinuxCodexAppThreadToolsPatch(source), source);
+  } finally {
+    console.warn = originalWarn;
   }
 });
 

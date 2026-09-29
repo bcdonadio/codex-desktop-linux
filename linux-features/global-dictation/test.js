@@ -55,9 +55,9 @@ function applyPatchTwice(source) {
 
 function mainBundleFixture() {
   return [
-    "var p=require(`node:fs`),u=require(`node:path`),h=require(`node:child_process`),c=require(`electron`),r={r:()=>({warning(){}})};",
+    "var p=require(`node:fs`),u=require(`node:path`),h=require(`node:child_process`),c=require(`electron`),g=c,r={r:()=>({warning(){}})};",
     "function Kk(e,t){let n=``;e.stdout?.on(`data`,e=>{n+=e.toString(`utf8`);let r=n.indexOf(`\\n`);for(;r!==-1;)t(n.slice(0,r).trim()),n=n.slice(r+1),r=n.indexOf(`\\n`)})}",
-    "function eA(e,t,n){let r=n?.ownership,i=t.onReleased,a=t.onCancelled,o=r==null?t:{onPressed:()=>{r.isOwner()&&t.onPressed()},onReleased:i==null?void 0:()=>{r.isOwner()&&i()},onCancelled:a==null?void 0:()=>{r.isOwner()&&a()}};if(process.platform===`win32`&&uV(e))return eBe(e,o);if(Rk(e))return Lk(e)||Qk(e)?Mk(e,o,n?.bareModifierTrigger):null;let s=oA(e),l=()=>{o.onPressed()},d=c.globalShortcut.register(s,l);return d?process.platform===`darwin`?sA({hotkey:e,onPressed:l,registrationHotkey:s}):{handlesRelease:!1,unregister:()=>{c.globalShortcut.unregister(s)}}:null}",
+    "function eA(e,t,n){let r=n?.ownership,i=t.onReleased,a=t.onCancelled,o=r==null?t:{onPressed:()=>{r.isOwner()&&t.onPressed()},onReleased:i==null?void 0:()=>{r.isOwner()&&i()},onCancelled:a==null?void 0:()=>{r.isOwner()&&a()}};if(process.platform===`win32`&&uV(e))return eBe(e,o);if(Rk(e)||Qk(e))return Lk(e)||Qk(e)?Mk(e,o,n?.bareModifierTrigger):null;let s=rR(e),c=()=>{qL().debug(`global_hotkey_pressed`,{safe:{hotkey:e},sensitive:{}}),o.onPressed()};if([...KL].some(e=>e.registrationHotkey===s))return null;let l={onCancelled:o.onCancelled,hotkey:e,onPressed:c,registrationHotkey:s,generation:0,registered:!1},u=iR(l);if(qL().debug(`register_global_hotkey`,{safe:{hotkey:e,registrationHotkey:s,platform:process.platform,registered:u},sensitive:{}}),!u)return null;let d=null;if(process.platform===`win32`&&o.onReleased!=null){let t=VL(e);if(d=t==null?null:hw(t,!1,e=>{e===`up`&&l.registered&&YL===0&&o.onReleased?.()}),d==null)return l.registered=!1,g.globalShortcut.unregister(s),null}return KL.add(l),YL>0&&(l.registered=!1,g.globalShortcut.unregister(s)),{handlesRelease:d!=null,unregister:()=>{KL.delete(l)&&(l.registered=!1,d?.dispose(),g.globalShortcut.unregister(l.registrationHotkey))}}}",
     "function fA(e){if(process.platform===`win32`&&uV(e))return null;let t=xV(e,process.platform,{allowUnmodified:!0});if(t!=null)return t;if(Lk(e))return null;return null}",
     "function pA(e,t){switch(process.platform){case`darwin`:{let n=Ik(mA(e),t);if(n==null)throw Error(`Global dictation hotkey release watching is not supported.`);return n}case`win32`:{let n=gA(e,process.platform);if(n==null)throw Error(`Global dictation hotkey release watching is not supported.`);return BA((0,h.spawn)(`powershell.exe`,[],{stdio:`ignore`}),t)}case`aix`:case`android`:case`cygwin`:case`freebsd`:case`haiku`:case`linux`:case`netbsd`:case`openbsd`:case`sunos`:throw Error(`Global dictation hotkey release watching is not supported.`)}}",
     "function mA(e){let t=[];for(let n of e.split(`+`)){let e=uA.get(n.trim().toLowerCase());e!=null&&!t.includes(e)&&t.push(e)}return t}",
@@ -211,6 +211,28 @@ test("main patch accepts the verified Windows-first registration and validation 
   const patched = applyPatchTwice(mainBundleFixture());
   assert.match(patched, /process\.platform===`linux`&&Rk\(e\).*Modifier-only shortcuts/u);
   assert.match(patched, /codexLinuxGlobalDictationPortalRegistration/u);
+});
+
+test("main patch preserves signed 26.928 registration generations and suspension", () => {
+  const source = mainBundleFixture();
+  const registration = source.slice(source.indexOf("function eA(e,t,n)"), source.indexOf("function fA(e)"));
+  const patched = applyPatchTwice(source);
+  const expected = registration
+    .replace("onCancelled:a==null?void 0:()=>{r.isOwner()&&a()}}", "onCancelled:a==null?void 0:()=>{r.isOwner()&&a()},onUnavailable:t.onUnavailable}")
+    .replace(";if(", ";if(process.platform===`linux`&&codexLinuxGlobalDictationUsesWayland())return codexLinuxGlobalDictationPortalRegistration(e,o);if(");
+  assert.ok(patched.includes(expected));
+  assert.match(patched, /if\(Rk\(e\)\|\|Qk\(e\)\)return Lk\(e\)\|\|Qk\(e\)\?Mk\(e,o,n\?\.bareModifierTrigger\):null/);
+  assert.match(patched, /generation:0,registered:!1/);
+  assert.match(patched, /KL\.delete\(l\).*d\?\.dispose\(\)/);
+});
+
+test("main patch fails closed when the paired Fn shortcut predicates disagree", () => {
+  const source = mainBundleFixture().replace(
+    "if(Rk(e)||Qk(e))return Lk(e)||Qk(e)?Mk(e,o,n?.bareModifierTrigger):null;",
+    "if(Rk(e)||Qk(e))return Lk(e)||OtherFn(e)?Mk(e,o,n?.bareModifierTrigger):null;",
+  );
+  assert.notEqual(source, mainBundleFixture());
+  assert.equal(applyLinuxGlobalDictationMainProcessPatch(source), source);
 });
 
 test("main patch rejects retired, partial, duplicate, and ambiguous toggle registrations", () => {

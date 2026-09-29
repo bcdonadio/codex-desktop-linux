@@ -278,7 +278,7 @@ function applyLinuxGlobalDictationMainProcessPatch(source) {
     const registerPattern = new RegExp(
       `function (${IDENT})\\(e,t,n\\)\\{[\\s\\S]{0,500}?;` +
         `(?:if\\(process\\.platform===\`win32\`&&${IDENT}\\(e\\)\\)return ${IDENT}\\(e,${IDENT}\\);)?` +
-        `if\\((${IDENT})\\(e\\)\\)return (${IDENT})\\(e\\)(?:\\|\\|${IDENT}\\(e\\))?\\?(${IDENT})\\(e,(${IDENT}),n\\?\\.bareModifierTrigger\\):null;`,
+        `if\\((${IDENT})\\(e\\)\\|\\|(${IDENT})\\(e\\)\\)return (${IDENT})\\(e\\)\\|\\|\\3\\(e\\)\\?(${IDENT})\\(e,(${IDENT}),n\\?\\.bareModifierTrigger\\):null;`,
       "u",
     );
     const registerMatch = source.match(registerPattern);
@@ -287,12 +287,11 @@ function applyLinuxGlobalDictationMainProcessPatch(source) {
     }
     const registerFunction = registerMatch[1];
     const bareModifierTestFunction = registerMatch[2];
-    const bareModifierSupportFunction = registerMatch[3];
     const registerFunctionPattern = escapeRegexLiteral(registerFunction);
     let patched = replaceUnique(
       source,
       registerPattern,
-      (original, _functionName, _bareTest, _bareSupport, _bareRegister, callbacksVar) => {
+      (original, _functionName, _bareTest, _fnTest, _bareSupport, _bareRegister, callbacksVar) => {
         const ownershipCallbacksPattern = new RegExp(
           `let (${IDENT})=n\\?\\.ownership,(${IDENT})=t\\.onReleased,(${IDENT})=t\\.onCancelled,(${IDENT})=\\1==null\\?t:\\{` +
             `onPressed:\\(\\)=>\\{\\1\\.isOwner\\(\\)&&t\\.onPressed\\(\\)\\},` +

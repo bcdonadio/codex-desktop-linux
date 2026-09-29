@@ -928,12 +928,43 @@ function applyLinuxRemoteMobileChromeBridgePatch(source) {
 }
 
 function browserClientHasNativeChromeBackendPreferenceRouting(source) {
-  return (
-    source.includes("BROWSER_USE_AVAILABLE_BACKENDS") &&
-    source.includes("browserPreference") &&
-    source.includes("preferredWindowIdFor") &&
-    /var [A-Za-z_$][\w$]*=\["chrome","iab","cdp"\];function [A-Za-z_$][\w$]*\([A-Za-z_$][\w$]*\)\{return [A-Za-z_$][\w$]*\.some\([A-Za-z_$][\w$]*=>[A-Za-z_$][\w$]*===[A-Za-z_$][\w$]*\)\}/u.test(source)
+  if (
+    !source.includes("BROWSER_USE_AVAILABLE_BACKENDS") ||
+    !source.includes("browserPreference") ||
+    !source.includes("preferredWindowIdFor")
+  ) return false;
+
+  // 26.928 initializes four backends in a module wrapper and passes the runtime
+  // into its config reader. Accept upstream ownership only when that reader
+  // and the extension/window preference routing remain connected.
+  const ident = "[A-Za-z_$][\\w$]*";
+  const uniqueMatch = (pattern) => {
+    const matches = [...source.matchAll(new RegExp(pattern, "gu"))];
+    return matches.length === 1 ? matches[0] : null;
+  };
+  const allowlist = uniqueMatch(
+    `function (?<check>${ident})\\((?<value>${ident})\\)\\{return (?<array>${ident})\\.some\\((?<item>${ident})=>\\k<item>===\\k<value>\\)\\}`,
   );
+  const env = uniqueMatch(`(?<env>${ident})="BROWSER_USE_AVAILABLE_BACKENDS"`);
+  if (allowlist == null || env == null) return false;
+  const array = escapeRegExp(allowlist.groups.array);
+  const check = escapeRegExp(allowlist.groups.check);
+  const envVar = escapeRegExp(env.groups.env);
+  const initialization = uniqueMatch(`${array}=\\["chrome","iab","cdp","mcpapps"\\]`);
+  const reader = uniqueMatch(
+    `function ${ident}\\((?<runtime>${ident})\\)\\{let (?<value>${ident})=${ident}\\(\\k<runtime>,${envVar}\\);return \\k<value>==null\\?null:${ident}\\(\\k<value>\\)\\.filter\\(${check}\\)\\}`,
+  );
+  const windowRouting = uniqueMatch(
+    `preferredWindowIdFor\\((?<browser>${ident})\\)\\{return (?<match>${ident})\\(\\k<browser>,this\\.browserPreference\\)\\?this\\.browserPreference\\?\\.preferredWindowId:void 0\\}`,
+  );
+  if (initialization == null || reader == null || windowRouting == null) return false;
+  const matchFn = escapeRegExp(windowRouting.groups.match);
+  const preferenceMatch = uniqueMatch(
+    `function ${matchFn}\\((?<browser>${ident}),(?<preference>${ident})\\)\\{return \\k<preference>!=null&&\\k<browser>\\.type==="extension"&&\\k<browser>\\.metadata\\?\\.extensionInstanceId===\\k<preference>\\.extensionInstanceId\\}`,
+  );
+  return preferenceMatch != null &&
+    uniqueMatch(`async getDefault\\(\\)\\{let ${ident}=${ident}\\(await this\\.getBrowsers\\(\\),this\\.browserPreference\\);`) != null &&
+    uniqueMatch(`async getForUrl\\((?<url>${ident})\\)\\{let ${ident}=await ${ident}\\(await this\\.getBrowsers\\(\\),\\k<url>,this\\.browserPreference\\);`) != null;
 }
 
 function applyLinuxRemoteMobileConversationHydrationPatch(source) {
@@ -1389,14 +1420,14 @@ function applyLinuxRemoteMobileReasoningSummaryPatch(source) {
       `(?<conversation>[A-Za-z_$][\\w$]*),\\{)`;
   const callerContract =
     `(?=canUseProjectlessWorkspace:!(?<classifier>[A-Za-z_$][\\w$]*)\\(\\k<manager>\\.getHostId\\(\\)\\),[\\s\\S]{0,1000}?` +
-    `reasoningSummaryOverride:\\k<manager>\\.getDefaultFeatureOverride\\(\`concurrent_reasoning_summaries\`\\)===!0\\?\`detailed\`:null)`;
+    `reasoningSummaryOverride:\\k<manager>\\.getDefaultFeatureOverride\\(\`concurrent_reasoning_summaries\`\\)===!0\\|\\|[A-Za-z_$][\\w$]*\\?\`detailed\`:null)`;
   const pristineCallerMatches = [...source.matchAll(new RegExp(callerPrefix + callerContract, "gu"))];
   const patchedCallerPattern = new RegExp(
     callerPrefix +
       `codexLinuxRemoteMobileHost:(?<patchedClassifier>[A-Za-z_$][\\w$]*)\\(\\k<manager>\\.getHostId\\(\\)\\)&&` +
       `\\k<conversation>\\.mode===\`durable\`,` +
       `(?=canUseProjectlessWorkspace:!\\k<patchedClassifier>\\(\\k<manager>\\.getHostId\\(\\)\\),[\\s\\S]{0,1000}?` +
-      `reasoningSummaryOverride:\\k<manager>\\.getDefaultFeatureOverride\\(\`concurrent_reasoning_summaries\`\\)===!0\\?\`detailed\`:null)`,
+      `reasoningSummaryOverride:\\k<manager>\\.getDefaultFeatureOverride\\(\`concurrent_reasoning_summaries\`\\)===!0\\|\\|[A-Za-z_$][\\w$]*\\?\`detailed\`:null)`,
     "gu",
   );
   const patchedCallerMatches = [...source.matchAll(patchedCallerPattern)];

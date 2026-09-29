@@ -148,8 +148,8 @@ test("adopted app servers receive the Desktop automation pipe explicitly", async
     "const process={env:{CODEX_APP_TOOLS_PIPE_PATH:`/tmp/codex-app-tools.sock`},resourcesPath:`/resources`};",
     "const base={mcpServers:{codex_app:{command:`launch`,env:{BASE:`preserved`}}}};",
     "function unavailable(reason){return null}",
-    "async function Co({hostConfig:e,resourcesPath:t=process.resourcesPath}){if(!process.env.CODEX_APP_TOOLS_PIPE_PATH)return unavailable(`missing-pipe`);let r=!1,i=base,a=null,{mcpServers:{codex_app:s}}=i,c={...s.env},l=null;return{...s,command:s.command,cwd:`/plugin`,enabled:!1,env:c}}",
-    "globalThis.read=Co;",
+    "async function nl({useWsl:e,resourcesPath:t=process.resourcesPath}){if(!process.env.CODEX_APP_TOOLS_PIPE_PATH)return unavailable(`missing-pipe`);let{mcpServers:{codex_app:s}}=base,c={...s.env},l=null;return{...s,command:s.command,cwd:`/plugin`,enabled:!1,env:c}}",
+    "globalThis.read=nl;globalThis.removePipe=()=>delete process.env.CODEX_APP_TOOLS_PIPE_PATH;",
   ].join("");
   const descriptor = descriptors.find(({ id }) => id === "automation-plugin-pipe");
 
@@ -158,9 +158,12 @@ test("adopted app servers receive the Desktop automation pipe explicitly", async
   const context = vm.createContext({});
   vm.runInContext(patched, context);
 
-  const config = await context.read({ hostConfig: { kind: "local" } });
+  const config = await context.read({ useWsl: false });
   assert.equal(config.env.BASE, "preserved");
   assert.equal(config.env.CODEX_APP_TOOLS_PIPE_PATH, "/tmp/codex-app-tools.sock");
+  assert.equal((await context.read({ useWsl: true })).env.CODEX_APP_TOOLS_PIPE_PATH, "/tmp/codex-app-tools.sock");
+  context.removePipe();
+  assert.equal(await context.read({ useWsl: false }), null);
   assert.equal(descriptor.apply(patched), patched);
   assert.throws(
     () => descriptor.apply(patched + "const decoy=`codexLinuxForwardAutomationPipe`;"),

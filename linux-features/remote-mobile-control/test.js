@@ -113,7 +113,7 @@ function syntheticReasoningSummaryTurnStartBundle() {
 }
 
 function syntheticCurrentReasoningSummaryTurnStartBundle() {
-  return "async function HWt(e,t,n,r,i,a,o){let s=n.request,N=a.latestThreadSettings,S=a.initialParams,C=a.configRequirements,ye=N?.summary??`none`;S?.summary!==void 0&&(ye=S.summary),o.reasoningSummaryOverride!=null&&(ye=o.reasoningSummaryOverride),ye=C==null?null:C.model_reasoning_summary??ye,s.summary!==void 0&&(ye=s.summary);logger.info(`Reasoning summary turn-start config resolved`,{safe:{summary:ye}});return{summary:ye}}async function QWt(e,t,n,r,i,a){return await HWt(e,t,n,r,i,a,{canUseProjectlessWorkspace:!gh(e.getHostId()),canMaterializeCodexHomeRoots:!gh(e.getHostId())&&!0,preserveWorkspaceSandboxPolicyWithDefault:gh(e.getHostId()),carryProjectlessRuntimeRoots:!gh(e.getHostId()),latestUseAppServerPermissionDefault:!0,reasoningSummaryOverride:e.getDefaultFeatureOverride(`concurrent_reasoning_summaries`)===!0?`detailed`:null})}";
+  return "async function HWt(e,t,n,r,i,a,o){let s=n.request,N=a.latestThreadSettings,S=a.initialParams,C=a.configRequirements,ye=N?.summary??`none`;S?.summary!==void 0&&(ye=S.summary),o.reasoningSummaryOverride!=null&&(ye=o.reasoningSummaryOverride),ye=C==null?null:C.model_reasoning_summary??ye,s.summary!==void 0&&(ye=s.summary);logger.info(`Reasoning summary turn-start config resolved`,{safe:{summary:ye}});return{summary:ye}}async function QWt(e,t,n,r,i,a){let s=a.threadSource===`aeon`;return await HWt(e,t,n,r,i,a,{canUseProjectlessWorkspace:!gh(e.getHostId()),canMaterializeCodexHomeRoots:!gh(e.getHostId())&&!0,preserveWorkspaceSandboxPolicyWithDefault:gh(e.getHostId()),carryProjectlessRuntimeRoots:!gh(e.getHostId()),latestUseAppServerPermissionDefault:!0,reasoningSummaryOverride:e.getDefaultFeatureOverride(`concurrent_reasoning_summaries`)===!0||s?`detailed`:null})}";
 }
 
 
@@ -413,11 +413,24 @@ function syntheticCurrentChromeBrowserClientBundle() {
   ].join("");
 }
 
-function syntheticModernChromeBrowserClientBundle() {
+function syntheticRetiredNativeChromeBrowserClientBundle() {
   return [
     "var wU=[\"chrome\",\"iab\",\"cdp\"];function Jv(t){return wU.some(e=>e===t)}",
     "var Qv=\"BROWSER_USE_AVAILABLE_BACKENDS\";",
     "class Browsers{constructor(e=null){this.browserPreference=e}async getForUrl(){}preferredWindowIdFor(e){return this.browserPreference?.preferredWindowId}}",
+  ].join("");
+}
+
+function syntheticSigned26928ChromeBrowserServiceBundle() {
+  return [
+    'function u(){}function le(init){return()=>init()}',
+    'function aS(t){return U4.some(e=>e===t)}var U4,lS=le(()=>{"use strict";u();U4=["chrome","iab","cdp","mcpapps"]});lS();',
+    'var hS="BROWSER_USE_AVAILABLE_BACKENDS";',
+    'function SC(t){let e=Ya(t,hS);return e==null?null:Vg(e).filter(aS)}',
+    'function Ya(t,e){let r=t.env[e];return typeof r=="string"?r:void 0}function Vg(t){return(t??"").split(",").map(e=>e.trim()).filter(Boolean)}',
+    'function fh(t,e){return e!=null&&t.type==="extension"&&t.metadata?.extensionInstanceId===e.extensionInstanceId}',
+    'function vF(t,e){return t.find(({info:r})=>r.type==="iab")??t.find(({info:r})=>fh(r,e))??t.find(({info:r})=>r.type==="extension")??t[0]}',
+    'class hh{constructor(e,r=null,n){this.runtime=e;this.browserPreference=r;this.preferences=n}async getDefault(){let e=vF(await this.getBrowsers(),this.browserPreference);if(e==null)throw new Error("No browser is available");return e}async getForUrl(e){let r=await xF(await this.getBrowsers(),e,this.browserPreference);if(r==null)throw new Error("No browser is available");return r}preferredWindowIdFor(e){return fh(e,this.browserPreference)?this.browserPreference?.preferredWindowId:void 0}}',
   ].join("");
 }
 
@@ -1657,6 +1670,27 @@ test("current reasoning-summary owner keeps durable mobile summaries off and pre
   );
 });
 
+test("current reasoning-summary owner preserves source-based detailed summaries outside durable mobile", async () => {
+  const source = syntheticCurrentReasoningSummaryTurnStartBundle();
+  const patched = applyLinuxRemoteMobileReasoningSummaryPatch(source);
+  assert.notEqual(patched, source);
+  const context = {
+    gh: (hostId) => hostId === "local",
+    logger: { info() {} },
+    module: { exports: {} },
+    navigator: { userAgent: "X11; Linux x86_64" },
+  };
+  vm.runInNewContext(`${patched};module.exports=QWt;`, context);
+  const manager = { getHostId: () => "local", getDefaultFeatureOverride: () => false };
+  const invoke = (mode, request = {}) => context.module.exports(
+    manager, null, { request }, null, null,
+    { configRequirements: {}, threadSource: "aeon", mode },
+  );
+  assert.equal((await invoke("default")).summary, "detailed");
+  assert.equal((await invoke("durable")).summary, "none");
+  assert.equal((await invoke("durable", { summary: "concise" })).summary, "concise");
+});
+
 test("Linux remote mobile reasoning-summary patch reports upstream drift", () => {
   const source = "async function yY(){return 1}";
   const { result, warnings } = captureWarnings(() =>
@@ -2114,12 +2148,43 @@ test("Linux remote mobile Chrome bridge patch handles current browser-client bac
   assert.deepEqual([...context.module.exports()], ["chrome", "iab"]);
 });
 
-test("Linux remote mobile Chrome bridge patch no-ops on upstream browser preference routing", () => {
-  const source = syntheticModernChromeBrowserClientBundle();
+test("Linux remote mobile Chrome bridge rejects retired inline three-backend native ownership", () => {
+  const source = syntheticRetiredNativeChromeBrowserClientBundle();
   const { result, warnings } = captureWarnings(() => applyLinuxRemoteMobileChromeBridgePatch(source));
 
   assert.equal(result, source);
+  assert.ok(warnings.some((warning) => warning.includes("backend allowlist needles")));
+});
+
+test("Linux remote mobile Chrome bridge recognizes signed 26.928 native preference routing", () => {
+  const source = syntheticSigned26928ChromeBrowserServiceBundle();
+  const { result, warnings } = captureWarnings(() => applyLinuxRemoteMobileChromeBridgePatch(source));
+  assert.equal(result, source);
   assert.deepEqual(warnings, []);
+  const context = {};
+  vm.runInNewContext(`${result};globalThis.__read=SC;globalThis.__Browsers=hh;`, context);
+  assert.deepEqual([...context.__read({ env: { BROWSER_USE_AVAILABLE_BACKENDS: "iab,mcpapps,unknown" } })], ["iab", "mcpapps"]);
+  const browsers = new context.__Browsers({}, { extensionInstanceId: "paired", preferredWindowId: 7 });
+  assert.equal(browsers.preferredWindowIdFor({ type: "extension", metadata: { extensionInstanceId: "paired" } }), 7);
+  assert.equal(browsers.preferredWindowIdFor({ type: "extension", metadata: { extensionInstanceId: "other" } }), undefined);
+});
+
+test("Linux remote mobile Chrome bridge rejects incomplete signed 26.928 ownership", () => {
+  const source = syntheticSigned26928ChromeBrowserServiceBundle();
+  const variants = {
+    mismatchedAllowlist: source.replace("Vg(e).filter(aS)", "Vg(e).filter(otherBackend)"),
+    mismatchedConfig: source.replace("Ya(t,hS)", "Ya(t,otherConfig)"),
+    mismatchedPreference: source.replace("===e.extensionInstanceId", "===e.otherInstanceId"),
+    missingWindowRoute: source.replace("preferredWindowIdFor(e){return fh(e,this.browserPreference)?this.browserPreference?.preferredWindowId:void 0}", "preferredWindowIdFor(e){}"),
+    missingDefaultRoute: source.replace("vF(await this.getBrowsers(),this.browserPreference)", "vF(await this.getBrowsers())"),
+    duplicateConfig: source + ';var otherConfig="BROWSER_USE_AVAILABLE_BACKENDS";',
+  };
+  for (const [name, fixture] of Object.entries(variants)) {
+    assert.notEqual(fixture, source, name);
+    const { result, warnings } = captureWarnings(() => applyLinuxRemoteMobileChromeBridgePatch(fixture));
+    assert.equal(result, fixture, name);
+    assert.ok(warnings.some((warning) => warning.includes("backend allowlist needles")), name);
+  }
 });
 
 test("Linux remote mobile Chrome bridge patch warns when browser-client needles drift", () => {

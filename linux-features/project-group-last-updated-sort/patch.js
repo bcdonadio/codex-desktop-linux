@@ -6,7 +6,7 @@ const currentGroupSorterPattern = new RegExp(
   "g",
 );
 const patchedGroupSorterPattern = new RegExp(
-  String.raw`function (${identifier})\(\{groups:e,items:t,projectOrder:n,sortMode:codexLinuxProjectSortMode\}\)\{if\(codexLinuxProjectSortMode!==\`updated_at\`\)return (${identifier})\(e,n\);`,
+  String.raw`function (${identifier})\(\{groups:e,getRecencyAt:t,projectOrder:n,sortMode:codexLinuxProjectSortMode\}\)\{if\(codexLinuxProjectSortMode!==\`updated_at\`\)return (${identifier})\(e,n\);`,
   "g",
 );
 
@@ -20,37 +20,34 @@ function escapeRegExp(value) {
 
 function currentSorterCallPattern(sorterName) {
   return new RegExp(
-    String.raw`${escapeRegExp(sorterName)}\(\{groups:(${identifier}),projectOrder:(${identifier}\(${identifier},${identifier}\.PROJECT_ORDER\))\}\)`,
+    String.raw`${escapeRegExp(sorterName)}\(\{groups:(${identifier}\(\{groups:${identifier},items:(${identifier})\}\)),projectOrder:(${identifier}\(${identifier},${identifier}\.PROJECT_ORDER\))\}\)`,
     "g",
   );
 }
 
 function patchedSorterCallPattern(sorterName) {
   return new RegExp(
-    String.raw`${escapeRegExp(sorterName)}\(\{groups:(${identifier}),projectOrder:(${identifier}\(${identifier},${identifier}\.PROJECT_ORDER\)),items:(${identifier}),sortMode:(${identifier})\}\)`,
+    String.raw`${escapeRegExp(sorterName)}\(\{groups:(${identifier}\(\{groups:${identifier},items:(${identifier})\}\)),projectOrder:(${identifier}\(${identifier},${identifier}\.PROJECT_ORDER\)),getRecencyAt:(${identifier}),sortMode:(${identifier})\}\)`,
     "g",
   );
 }
 
 function projectSortModeBefore(source, callIndex) {
-  const prefix = source.slice(Math.max(0, callIndex - 300), callIndex);
+  const prefix = source.slice(Math.max(0, callIndex - 2000), callIndex);
   const matches = [...prefix.matchAll(new RegExp(String.raw`projectSortMode:(${identifier})`, "g"))];
   return matches.length === 1 ? matches[0][1] : null;
 }
 
-function projectItemsBefore(source, callIndex, groupsVar) {
-  const prefix = source.slice(Math.max(0, callIndex - 500), callIndex);
-  const matches = [...prefix.matchAll(
-    new RegExp(
-      String.raw`${escapeRegExp(groupsVar)}=${identifier}\(\{groups:${identifier},items:(${identifier})\}\)`,
-      "g",
-    ),
-  )];
-  return matches.length === 1 ? matches[0][1] : null;
+function projectRecencyAfter(source, call, itemsVar) {
+  const suffix = source.slice(call.index + call[0].length);
+  const recencyCall = new RegExp(
+    String.raw`^,${identifier}=${identifier}\(\{explicitChatThreadKeys:${identifier},getRecencyAt:(${identifier}),items:${escapeRegExp(itemsVar)},projectGroups:${identifier},projectlessThreadIds:new Set\(`,
+  );
+  return recencyCall.exec(suffix)?.[1] ?? null;
 }
 
 function patchedGroupSorter(sorterName, orderFunction) {
-  return `function ${sorterName}({groups:e,items:t,projectOrder:n,sortMode:codexLinuxProjectSortMode}){if(codexLinuxProjectSortMode!==\`updated_at\`)return ${orderFunction}(e,n);let r=new Map(t.map(e=>[e.task.key,e.recencyAt]));return e.map((e,t)=>({group:e,index:t,recencyAt:e.threadKeys.reduce((e,t)=>Math.max(e,r.get(t)??0),e.projectUpdatedAt??0)})).sort((e,t)=>t.recencyAt-e.recencyAt||e.index-t.index).map(({group:e})=>e)}`;
+  return `function ${sorterName}({groups:e,getRecencyAt:t,projectOrder:n,sortMode:codexLinuxProjectSortMode}){if(codexLinuxProjectSortMode!==\`updated_at\`)return ${orderFunction}(e,n);return e.map((e,n)=>({group:e,index:n,recencyAt:e.threadKeys.reduce((e,n)=>Math.max(e,t(n)??0),e.projectUpdatedAt??0)})).sort((e,t)=>t.recencyAt-e.recencyAt||e.index-t.index).map(({group:e})=>e)}`;
 }
 
 function applyProjectGroupLastUpdatedSortPatch(source) {
@@ -81,10 +78,10 @@ function applyProjectGroupLastUpdatedSortPatch(source) {
     return source;
   }
 
-  const groupsVar = currentCalls[0][1];
-  const itemsVar = projectItemsBefore(source, currentCalls[0].index, groupsVar);
+  const itemsVar = currentCalls[0][2];
+  const recencyVar = projectRecencyAfter(source, currentCalls[0], itemsVar);
   const sortMode = projectSortModeBefore(source, currentCalls[0].index);
-  if (itemsVar == null || sortMode == null) {
+  if (recencyVar == null || sortMode == null) {
     console.warn(
       "WARN: Could not find current project group sorting insertion points - skipping project group Last updated sort feature patch",
     );
@@ -92,7 +89,7 @@ function applyProjectGroupLastUpdatedSortPatch(source) {
   }
 
   const call = currentCalls[0][0];
-  const patchedCall = `${call.slice(0, -2)},items:${itemsVar},sortMode:${sortMode}})`;
+  const patchedCall = `${call.slice(0, -2)},getRecencyAt:${recencyVar},sortMode:${sortMode}})`;
   return source
     .replace(currentSorters[0][0], patchedGroupSorter(sorterName, orderFunction))
     .replace(call, patchedCall);

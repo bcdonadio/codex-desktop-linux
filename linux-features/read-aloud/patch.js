@@ -188,6 +188,22 @@ function applyAssistantRenderPatch(source) {
   return source;
 }
 
+function matchesAssistantRuntimeContract(source) {
+  const identifier = String.raw`[A-Za-z_$][\w$]*`;
+  const calls = source.matchAll(new RegExp(
+    String.raw`\(0,${identifier}\.jsx\)\((${identifier}),\{(?=[^{}]*\bitem:)(?=[^{}]*\bassistantCopyText:)(?=[^{}]*\bconversationId:)[^{}]*\}\)`,
+    "g",
+  ));
+  for (const [, component] of calls) {
+    const escapedComponent = component.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const owner = new RegExp(
+      String.raw`function ${escapedComponent}\((${identifier})\)\{let ${identifier}=\(0,${identifier}\.c\)\(\d+\),\{(?=[^{}]*\bitem:)(?=[^{}]*\bassistantCopyText:)(?=[^{}]*\bconversationId:)[^{}]*\}=\1(?:[,;])`,
+    );
+    if (owner.test(source)) return true;
+  }
+  return false;
+}
+
 function applySettingsPatch(source) {
   return source
     .replace(`,readAloud:${JSON.stringify(SETTINGS_KEY)}`, "")
@@ -851,8 +867,9 @@ module.exports = {
       phase: "webview-asset",
       order: 20620,
       ciPolicy: "optional",
-      pattern: /^conversation-blocks-[A-Za-z0-9_-]+\.js$/,
-      missingDescription: "current primary thread assistant bundle",
+      pattern: /^[A-Za-z0-9_-]+\.js$/,
+      assetMatch: matchesAssistantRuntimeContract,
+      missingDescription: "unique shared assistant renderer and render calls",
       skipDescription: "read aloud assistant runtime patch",
       apply: applyAssistantAssetPatch,
     },
