@@ -24,6 +24,10 @@ Desktop-owner marker, the same private authority starts as `app-server
 --remote-control --listen unix://PATH`. Missing, malformed, or symlinked markers
 leave the shared authority in its ordinary non-Remote-Control mode.
 
+Only the host whose ID is `local` uses the shared authority. The upstream
+`durable` cloud host also has local kind metadata, but retains its own transport
+and never tries to claim this socket.
+
 The bundled CLI may publish the requested socket as a symlink to a private
 socket directory. Startup, attached CLI verification, and orphan cleanup
 validate the alias and its target, including ownership, directory permissions,
