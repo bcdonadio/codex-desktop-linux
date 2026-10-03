@@ -11,6 +11,10 @@ Preserve local history and accept only when signed-upstream, Fedora patch-report
 RPM, and Git provenance evidence agree. The sole downstream target is an RPM for
 the current Fedora host and architecture. Never suppress patch drift.
 
+Always resolve the latest signed stable release directly from OpenAI. Repository
+pins (including those merged from `origin/main`), existing artifacts, and local
+package overrides must not select the release for this workflow.
+
 **Host privilege route:** this workspace can have `NoNewPrivs: 1`. For an
 authorized RPM installation, use `ssh localhost` to reach the host and
 `sudo -n` there. Check that route before starting an install. Do not try a
@@ -51,24 +55,38 @@ patch drift requires it. Never produce a downstream `.deb` deliverable.
    git show --show-signature --no-patch HEAD
    ```
 
-6. Build the Fedora RPM from signed stable APT metadata. Keep repository writes
+6. Resolve fresh signed stable APT metadata from OpenAI, then build the Fedora
+   RPM from that repository. Keep repository writes
    unprivileged and invoke the RPM target directly so package-format detection
    cannot widen the scope:
 
    ```bash
    mkdir -p .tmp/native-update
    case "$(uname -m)" in
-     x86_64) expected_app_arch=x64; expected_rpm_arch=x86_64 ;;
-     aarch64) expected_app_arch=arm64; expected_rpm_arch=aarch64 ;;
+     x86_64) expected_app_arch=x64; expected_rpm_arch=x86_64; expected_upstream_arch=amd64 ;;
+     aarch64) expected_app_arch=arm64; expected_rpm_arch=aarch64; expected_upstream_arch=arm64 ;;
    esac
+   upstream_repository=https://persistent.oaistatic.com/codex-app-prod/linux/deb
+   latest_metadata="$PWD/.tmp/native-update/latest-signed.json"
+   resolve_latest_metadata() {
+     node scripts/lib/upstream-linux-package.js \
+       --output-dir "$PWD/.tmp/native-update/latest-signed" \
+       --metadata "$latest_metadata" \
+       --key-base64 assets/openai-codex-linux-repository-key.gpg.base64 \
+       --arch "$expected_upstream_arch" \
+       --repository "$upstream_repository" --metadata-only
+   }
+   resolve_latest_metadata
+   jq '{version, architecture, sha256}' "$latest_metadata"
    package_version="$(date -u +%Y.%m.%d.%H%M%S)+$(git rev-parse --short=12 HEAD)"
    rpm_version="${package_version%%+*}"
    rpm_release="${package_version#*+}"
    rpm_path="$PWD/dist/codex-desktop-${rpm_version}-${rpm_release}.${expected_rpm_arch}.rpm"
    test ! -e "$rpm_path"
    TMPDIR="$PWD/.tmp/native-update" \
+     CODEX_UPSTREAM_LINUX_REPOSITORY="$upstream_repository" \
      PACKAGE_VERSION="$package_version" \
-     make build-native-feature-helpers build-app rpm
+     make UPSTREAM_DEB= build-native-feature-helpers build-app rpm
    test -f "$rpm_path"
    ```
 
@@ -77,6 +95,9 @@ patch drift requires it. Never produce a downstream `.deb` deliverable.
    stages. Never use a `latest` URL or execute upstream maintainer scripts. Do
    not refresh Nix pins or any other format metadata when signed stable moves;
    the Fedora build resolves and verifies its source independently.
+   `UPSTREAM_DEB=` clears inherited local-package overrides. Require successful
+   signature and index/package hash verification; never fall back to a pinned
+   or cached release when fresh resolution fails.
 7. On failure or enabled-feature drift, inspect the newest transaction's `patch-report.json`, `upstream-linux-package.json`, and extracted current bundle. Add a current-shape failing fixture, verify RED, retarget the narrow semantic anchor, verify GREEN, commit with `-S --signoff`, and rerun clean. Require build exit zero, atomic candidate promotion, and:
 
    ```bash
@@ -89,6 +110,14 @@ patch drift requires it. Never produce a downstream `.deb` deliverable.
    RPM, and the current architecture:
 
    ```bash
+   resolve_latest_metadata
+   jq -e --slurpfile latest "$latest_metadata" \
+     '.upstreamLinuxPackage as $built | $latest[0] as $latest |
+      $built.version == $latest.version and
+      $built.architecture == $latest.architecture and
+      $built.sha256 == $latest.sha256 and
+      $built.repository == $latest.repository' \
+     codex-app/.codex-linux/build-info.json
    jq . codex-app/.codex-linux/build-info.json
    rpm_path="$(/usr/bin/realpath "$rpm_path")"
    rpm_sha256="$(/usr/bin/sha256sum "$rpm_path" | /usr/bin/awk '{print $1}')"
@@ -107,6 +136,10 @@ patch drift requires it. Never produce a downstream `.deb` deliverable.
       .linuxTarget.arch == $arch' \
      codex-app/.codex-linux/build-info.json
    ```
+
+   If OpenAI published a newer release during the build, rebuild and repeat
+   verification before accepting, installing, or pushing the candidate. Stop
+   and report if releases keep advancing; do not start an unbounded rebuild loop.
 
    If the task only requests the artifact, continue to the commit/push step.
    When installation is requested or already authorized, record the user
